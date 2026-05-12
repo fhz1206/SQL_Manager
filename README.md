@@ -1,0 +1,3 @@
+# SQL_Manager
+
+这是一个基于python的PyQt5框架的SQL查看软件
