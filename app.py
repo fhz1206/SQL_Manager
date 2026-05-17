@@ -1,5 +1,5 @@
 import sys
-import os  # 用于处理图标路径
+import os  # 用于路径处理
 import sqlite3
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -7,379 +7,17 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QComboBox, QFileDialog, QSplitter, QTreeWidget, QTreeWidgetItem,
                              QMenu, QAction, QStatusBar, QToolBar, QTextEdit, QFrame,
                              QSizePolicy, QAbstractItemView,
-                             QCheckBox, QGroupBox, QScrollArea, QDialog)
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QIcon
+                             QCheckBox, QGroupBox, QScrollArea, QDialog,
+                             QTableView)  # 删除了错误的QAbstractTableModel导入
+from PyQt5.QtCore import Qt, QSize, QAbstractTableModel, QModelIndex
+from PyQt5.QtGui import QIcon, QColor
 
-# 图标绝对路径拼接（避免相对路径找不到的问题）
+# 路径配置
 ICON_PATH = os.path.join(os.path.dirname(__file__), 'icon.ico')
-
-# 现代化样式表（适配小屏+弹窗样式）
-STYLESHEET = """
-QMainWindow {
-    background-color: #f5f6fa;
-}
-
-QToolBar {
-    background-color: #2c3e50;
-    border: none;
-    padding: 4px 6px;
-    spacing: 6px;
-}
-
-QToolBar QToolButton {
-    background-color: #34495e;
-    color: #ecf0f1;
-    border: none;
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 12px;
-    font-weight: bold;
-    min-width: 60px;
-}
-
-QToolBar QToolButton:hover {
-    background-color: #3d566e;
-}
-
-QToolBar QToolButton:pressed {
-    background-color: #1a252f;
-}
-
-QStatusBar {
-    background-color: #2c3e50;
-    color: #ecf0f1;
-    font-size: 11px;
-    padding: 2px 8px;
-}
-
-QSplitter::handle {
-    background-color: #dcdde1;
-    width: 2px;
-}
-
-QTreeWidget {
-    background-color: #ffffff;
-    border: 1px solid #dcdde1;
-    border-radius: 8px;
-    padding: 4px;
-    font-size: 12px;
-    outline: none;
-}
-
-QTreeWidget::item {
-    padding: 4px 2px;
-    border-radius: 4px;
-}
-
-QTreeWidget::item:selected {
-    background-color: #3498db;
-    color: #ffffff;
-}
-
-QTreeWidget::item:hover {
-    background-color: #ebf5fb;
-}
-
-QTreeWidget::branch {
-    background-color: transparent;
-}
-
-QTabWidget::pane {
-    border: 1px solid #dcdde1;
-    border-radius: 8px;
-    background-color: #ffffff;
-    top: -1px;
-}
-
-QTabBar::tab {
-    background-color: #ecf0f1;
-    color: #2c3e50;
-    padding: 8px 16px;
-    margin-right: 2px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    font-size: 12px;
-    font-weight: bold;
-    min-width: 80px;
-}
-
-QTabBar::tab:selected {
-    background-color: #ffffff;
-    color: #2c3e50;
-    border-bottom: 2px solid #3498db;
-}
-
-QTabBar::tab:hover:!selected {
-    background-color: #dfe6e9;
-}
-
-QTableWidget {
-    background-color: #ffffff;
-    border: 1px solid #dcdde1;
-    border-radius: 8px;
-    gridline-color: #f0f0f0;
-    font-size: 12px;
-    selection-background-color: #3498db;
-    selection-color: #ffffff;
-    outline: none;
-}
-
-QTableWidget::item {
-    padding: 4px 8px;
-}
-
-QTableWidget::item:selected {
-    background-color: #3498db;
-    color: #ffffff;
-}
-
-QHeaderView::section {
-    background-color: #f8f9fa;
-    color: #2c3e50;
-    padding: 6px 8px;
-    border: none;
-    border-bottom: 2px solid #3498db;
-    font-weight: bold;
-    font-size: 12px;
-}
-
-QTextEdit {
-    background-color: #2c3e50;
-    color: #ecf0f1;
-    border: 1px solid #dcdde1;
-    border-radius: 8px;
-    padding: 8px;
-    font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 13px;
-    selection-background-color: #3498db;
-    selection-color: #ffffff;
-}
-
-QPushButton {
-    background-color: #3498db;
-    color: #ffffff;
-    border: none;
-    border-radius: 6px;
-    padding: 6px 16px;
-    font-size: 12px;
-    font-weight: bold;
-    min-width: 60px;
-}
-
-QPushButton:hover {
-    background-color: #2980b9;
-}
-
-QPushButton:pressed {
-    background-color: #1f6da8;
-}
-
-QPushButton#dangerButton {
-    background-color: #e74c3c;
-}
-
-QPushButton#dangerButton:hover {
-    background-color: #c0392b;
-}
-
-QPushButton#successButton {
-    background-color: #27ae60;
-}
-
-QPushButton#successButton:hover {
-    background-color: #219a52;
-}
-
-QPushButton#wizardButton {
-    background-color: #8e44ad;
-}
-
-QPushButton#wizardButton:hover {
-    background-color: #7d3c98;
-}
-
-QPushButton#wizardButton:pressed {
-    background-color: #6c3483;
-}
-
-QLineEdit {
-    background-color: #ffffff;
-    border: 2px solid #dcdde1;
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 12px;
-    color: #2c3e50;
-    selection-background-color: #3498db;
-    selection-color: #ffffff;
-}
-
-QLineEdit:focus {
-    border-color: #3498db;
-}
-
-QLineEdit::placeholder {
-    color: #b2bec3;
-}
-
-QComboBox {
-    background-color: #ffffff;
-    border: 2px solid #dcdde1;
-    border-radius: 6px;
-    padding: 5px 10px;
-    font-size: 12px;
-    color: #2c3e50;
-    min-width: 80px;
-}
-
-QComboBox:focus {
-    border-color: #3498db;
-}
-
-QComboBox::drop-down {
-    border: none;
-    width: 24px;
-}
-
-QComboBox QAbstractItemView {
-    background-color: #ffffff;
-    border: 1px solid #dcdde1;
-    border-radius: 4px;
-    selection-background-color: #3498db;
-    selection-color: #ffffff;
-    outline: none;
-}
-
-QLabel {
-    color: #2c3e50;
-    font-size: 12px;
-}
-
-QLabel#titleLabel {
-    color: #2c3e50;
-    font-size: 14px;
-    font-weight: bold;
-}
-
-QLabel#searchIcon {
-    color: #b2bec3;
-    font-size: 14px;
-}
-
-QMenu {
-    background-color: #ffffff;
-    border: 1px solid #dcdde1;
-    border-radius: 8px;
-    padding: 4px 0px;
-}
-
-QMenu::item {
-    padding: 6px 24px;
-    color: #2c3e50;
-}
-
-QMenu::item:selected {
-    background-color: #3498db;
-    color: #ffffff;
-    border-radius: 4px;
-}
-
-QMenu::separator {
-    height: 1px;
-    background-color: #ecf0f1;
-    margin: 3px 8px;
-}
-
-QScrollBar:vertical {
-    background-color: #f5f6fa;
-    width: 8px;
-    border-radius: 4px;
-}
-
-QScrollBar::handle:vertical {
-    background-color: #b2bec3;
-    border-radius: 4px;
-    min-height: 30px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background-color: #636e72;
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-
-QScrollBar:horizontal {
-    background-color: #f5f6fa;
-    height: 8px;
-    border-radius: 4px;
-}
-
-QScrollBar::handle:horizontal {
-    background-color: #b2bec3;
-    border-radius: 4px;
-    min-width: 30px;
-}
-
-QScrollBar::handle:horizontal:hover {
-    background-color: #636e72;
-}
-
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-    width: 0px;
-}
-
-QMessageBox {
-    background-color: #ffffff;
-}
-
-QMessageBox QLabel {
-    color: #2c3e50;
-    font-size: 13px;
-}
-
-/* 查询向导弹窗样式 */
-QDialog {
-    background-color: #f5f6fa;
-}
-
-QGroupBox {
-    font-weight: bold;
-    font-size: 12px;
-    color: #2c3e50;
-    border: 2px solid #dcdde1;
-    border-radius: 8px;
-    margin-top: 12px;
-    padding-top: 16px;
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 6px;
-}
-
-QCheckBox {
-    color: #2c3e50;
-    font-size: 12px;
-    spacing: 4px;
-}
-
-QCheckBox::indicator {
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
-    border: 2px solid #b2bec3;
-}
-
-QCheckBox::indicator:checked {
-    background-color: #3498db;
-    border-color: #3498db;
-}
-"""
+CSS_PATH = os.path.join(os.path.dirname(__file__), 'style.css')  # 样式文件路径
 
 
+# ==================== 自定义组件区域 ====================
 class SearchLineEdit(QLineEdit):
     """带搜索图标的输入框"""
     def __init__(self, placeholder='搜索...', parent=None):
@@ -388,6 +26,97 @@ class SearchLineEdit(QLineEdit):
         self.setMinimumHeight(32)
 
 
+# ==================== 虚拟表格组件（解决大表格渲染卡顿问题） ====================
+class TableModel(QAbstractTableModel):
+    """虚拟表格数据模型，仅加载可视区域数据，支持分批加载"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._data = []  # 当前已加载的数据
+        self._columns = []  # 列名
+        self._total_rows = 0  # 表总行数
+        self._has_more = False  # 是否还有更多数据未加载
+        self._alternating = True  # 是否开启交替行颜色
+
+    def set_data(self, data, columns, total_rows, has_more=False):
+        """设置模型数据"""
+        self.beginResetModel()
+        self._data = data
+        self._columns = columns
+        self._total_rows = total_rows
+        self._has_more = has_more
+        self.endResetModel()
+
+    def add_data(self, new_data):
+        """追加加载更多数据"""
+        self.beginInsertRows(QModelIndex(), len(self._data), len(self._data) + len(new_data) - 1)
+        self._data.extend(new_data)
+        self._has_more = len(self._data) < self._total_rows
+        self.endInsertRows()
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(self._columns)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid() or index.row() >= len(self._data):
+            return None
+        
+        row, col = index.row(), index.column()
+        value = self._data[row][col] if col < len(self._data[row]) else ''
+        
+        if role == Qt.DisplayRole:
+            return str(value) if value is not None else ''
+        elif role == Qt.BackgroundRole and self._alternating:
+            return QColor('#f8f9fa') if row % 2 == 1 else QColor('#ffffff')
+        return None
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
+            return self._columns[section] if section < len(self._columns) else ''
+        return None
+
+    def flags(self, index):
+        return Qt.ItemIsSelectable | Qt.ItemIsEnabled
+
+    @property
+    def has_more(self):
+        return self._has_more
+    
+    @property
+    def loaded_count(self):
+        return len(self._data)
+    
+    @property
+    def total_rows(self):
+        return self._total_rows
+
+
+class VirtualTableWidget(QTableView):
+    """虚拟表格控件，封装模型和加载更多逻辑"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.model = TableModel(self)
+        self.setModel(self.model)
+        self.setAlternatingRowColors(True)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.load_more_signal = None  # 外部绑定加载更多回调
+
+    def set_alternating(self, enabled):
+        self.model._alternating = enabled
+        self.model.layoutChanged.emit()
+
+    def load_more(self):
+        """触发加载更多回调"""
+        if self.load_more_signal and self.model.has_more:
+            self.load_more_signal()
+
+
+# ==================== 查询向导弹窗 ====================
 class QueryWizardDialog(QDialog):
     """查询向导弹窗 - 生成SQL后自动填入编辑器"""
     def __init__(self, conn, parent=None):
@@ -398,8 +127,9 @@ class QueryWizardDialog(QDialog):
 
     def init_ui(self):
         self.setWindowTitle('🔍 查询向导')
-        self.setWindowIcon(QIcon(ICON_PATH))  # 弹窗使用ico作为窗口图标
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.setMinimumSize(700, 600)
+        # 弹窗独立样式（仅保留弹窗特有的样式，通用样式已在style.css中定义）
         self.setStyleSheet('''
             QDialog {
                 background-color: #f5f6fa;
@@ -714,13 +444,11 @@ class QueryWizardDialog(QDialog):
 
     def _load_columns(self, table_name):
         """加载指定表的列信息"""
-        # 清除旧的列复选框
         while self.columns_layout.count():
             item = self.columns_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        # 清除下拉框
         self.filter_column_combo.clear()
         self.filter_column_combo2.clear()
 
@@ -732,7 +460,6 @@ class QueryWizardDialog(QDialog):
             cursor.execute(f"PRAGMA table_info('{table_name}')")
             columns = cursor.fetchall()
 
-            # 创建列复选框
             col_widget = QWidget()
             col_inner = QVBoxLayout()
             col_inner.setSpacing(6)
@@ -752,7 +479,6 @@ class QueryWizardDialog(QDialog):
 
             self.columns_layout.addWidget(col_widget)
 
-            # 更新筛选列下拉框
             for col in columns:
                 self.filter_column_combo.addItem(col[1])
                 self.filter_column_combo2.addItem(col[1])
@@ -809,13 +535,12 @@ class QueryWizardDialog(QDialog):
             return f'"{column}" {op} \'{value}\''
 
     def _generate_sql(self):
-        """生成SQL语句（已移除排序功能）"""
+        """生成SQL语句"""
         table_name = self.table_combo.currentText()
         if not table_name:
             self.sql_preview.setPlainText('')
             return ''
 
-        # 选择的列
         selected_cols = []
         for check in getattr(self, 'column_checks', []):
             if check.isChecked():
@@ -824,10 +549,8 @@ class QueryWizardDialog(QDialog):
         if not selected_cols:
             selected_cols = ['*']
 
-        # 构建SELECT
         sql = f'SELECT {", ".join(selected_cols)} FROM "{table_name}"'
 
-        # 构建WHERE
         conditions = []
         filter_col = self.filter_column_combo.currentText()
         if filter_col:
@@ -836,7 +559,6 @@ class QueryWizardDialog(QDialog):
             if op_idx in (9, 10) or value:
                 conditions.append(self._build_condition(filter_col, op_idx, value))
 
-        # 第二个条件
         if self.and_radio.isChecked() or self.or_radio.isChecked():
             filter_col2 = self.filter_column_combo2.currentText()
             if filter_col2:
@@ -864,22 +586,36 @@ class QueryWizardDialog(QDialog):
         self.accept()
 
 
+# ==================== 主窗口类 ====================
 class DBManager(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_db = None
         self.conn = None
         self.current_table = None
-        self.all_table_data = []
+        # 表数据相关
+        self.table_total_rows = 0
+        self.table_loaded_rows = 0
+        self.table_page_size = 1000
         self.table_columns = []
+        # SQL查询相关
+        self.sql_result_total = 0
+        self.sql_result_loaded = 0
         self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle('SQLite 数据库查看工具')
-        self.setWindowIcon(QIcon(ICON_PATH))  # 主窗口使用ico作为窗口图标
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.setGeometry(80, 80, 1000, 650)
         self.setMinimumSize(800, 500)
-        self.setStyleSheet(STYLESHEET)
+
+        # 读取外部样式文件
+        try:
+            with open(CSS_PATH, 'r', encoding='utf-8') as f:
+                stylesheet = f.read()
+            self.setStyleSheet(stylesheet)
+        except Exception as e:
+            QMessageBox.warning(self, '样式加载失败', f'无法加载style.css：{str(e)}\n请确保style.css和程序在同一目录下')
 
         # 创建状态栏
         self.status_bar = QStatusBar()
@@ -891,14 +627,14 @@ class DBManager(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        # 打开数据库按钮（仅文字+emoji，不使用ico作为按钮图标）
+        # 打开数据库按钮
         open_db_action = QAction('📂 打开数据库', self)
         open_db_action.triggered.connect(self.open_database)
         toolbar.addAction(open_db_action)
 
         toolbar.addSeparator()
 
-        # 关闭数据库按钮（仅文字+emoji，不使用ico作为按钮图标）
+        # 关闭数据库按钮
         close_db_action = QAction('✖ 关闭数据库', self)
         close_db_action.triggered.connect(self.close_database)
         toolbar.addAction(close_db_action)
@@ -930,7 +666,7 @@ class DBManager(QMainWindow):
         left_title.setObjectName('titleLabel')
         left_layout.addWidget(left_title)
 
-        # 搜索框 - 过滤数据库对象树
+        # 搜索框
         self.tree_search_input = SearchLineEdit('🔍 搜索表名...')
         self.tree_search_input.textChanged.connect(self.filter_db_tree)
         left_layout.addWidget(self.tree_search_input)
@@ -943,18 +679,18 @@ class DBManager(QMainWindow):
         self.db_tree.customContextMenuRequested.connect(self.show_tree_context_menu)
         self.db_tree.setIndentation(16)
         self.db_tree.setAnimated(True)
+        self.db_tree.itemExpanded.connect(self.on_tree_item_expanded)
         left_layout.addWidget(self.db_tree)
 
         splitter.addWidget(left_panel)
 
-        # ========== 右侧面板 - 数据表和SQL编辑器 ==========
+        # ========== 右侧面板 ==========
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(2, 0, 0, 0)
         right_layout.setSpacing(0)
         right_panel.setLayout(right_layout)
 
-        # 创建选项卡控件
         self.tab_widget = QTabWidget()
         right_layout.addWidget(self.tab_widget)
 
@@ -965,7 +701,7 @@ class DBManager(QMainWindow):
         table_layout.setSpacing(6)
         self.table_tab.setLayout(table_layout)
 
-        # 搜索栏区域
+        # 搜索栏
         search_frame = QFrame()
         search_frame.setStyleSheet("""
             QFrame {
@@ -980,27 +716,23 @@ class DBManager(QMainWindow):
         search_layout.setSpacing(6)
         search_frame.setLayout(search_layout)
 
-        # 当前表标签
         self.current_table_label = QLabel('📋 当前表: 无')
         self.current_table_label.setObjectName('titleLabel')
         search_layout.addWidget(self.current_table_label)
 
         search_layout.addStretch()
 
-        # 搜索列选择
         search_layout.addWidget(QLabel('搜索列:'))
         self.search_column_combo = QComboBox()
         self.search_column_combo.addItem('所有列')
         self.search_column_combo.setMinimumWidth(100)
         search_layout.addWidget(self.search_column_combo)
 
-        # 搜索关键词输入
         self.data_search_input = SearchLineEdit('🔍 输入关键词搜索数据...')
         self.data_search_input.setMinimumWidth(180)
         self.data_search_input.textChanged.connect(self.search_in_table)
         search_layout.addWidget(self.data_search_input)
 
-        # 清除搜索按钮
         clear_search_btn = QPushButton('清除')
         clear_search_btn.setMinimumWidth(60)
         clear_search_btn.clicked.connect(self.clear_data_search)
@@ -1008,16 +740,9 @@ class DBManager(QMainWindow):
 
         table_layout.addWidget(search_frame)
 
-        # 表格控件
-        self.table_widget = QTableWidget()
+        # 虚拟表格
+        self.table_widget = VirtualTableWidget()
         self.table_widget.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table_widget.setAlternatingRowColors(True)
-        self.table_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.table_widget.setStyleSheet("""
-            QTableWidget {
-                alternate-background-color: #f8f9fa;
-            }
-        """)
         table_layout.addWidget(self.table_widget)
 
         # 底部操作栏
@@ -1029,6 +754,14 @@ class DBManager(QMainWindow):
         table_action_layout.addWidget(self.row_count_label)
 
         table_action_layout.addStretch()
+
+        # 加载更多按钮
+        self.table_load_more_btn = QPushButton('加载更多')
+        self.table_load_more_btn.setObjectName('successButton')
+        self.table_load_more_btn.setMinimumWidth(80)
+        self.table_load_more_btn.clicked.connect(self.load_more_table_data)
+        self.table_load_more_btn.setVisible(False)
+        table_action_layout.addWidget(self.table_load_more_btn)
 
         refresh_btn = QPushButton('🔄 刷新')
         refresh_btn.setObjectName('successButton')
@@ -1047,13 +780,12 @@ class DBManager(QMainWindow):
         sql_layout.setSpacing(6)
         self.sql_tab.setLayout(sql_layout)
 
-        # SQL编辑器标签+向导按钮
+        # 标题+向导按钮
         sql_header_layout = QHBoxLayout()
         sql_title = QLabel('💻 SQL 查询编辑器')
         sql_title.setObjectName('titleLabel')
         sql_header_layout.addWidget(sql_title)
 
-        # 查询向导按钮（弹窗触发）
         query_wizard_btn = QPushButton('🔍 查询向导')
         query_wizard_btn.setObjectName('wizardButton')
         query_wizard_btn.setStyleSheet('''
@@ -1106,23 +838,32 @@ class DBManager(QMainWindow):
         sql_btn_layout.addStretch()
         sql_layout.addLayout(sql_btn_layout)
 
-        # 查询结果标签
+        # 查询结果
         result_title = QLabel('📋 查询结果')
         result_title.setObjectName('titleLabel')
         sql_layout.addWidget(result_title)
 
-        # 查询结果表格
-        self.result_table = QTableWidget()
+        self.result_table = VirtualTableWidget()
         self.result_table.setAlternatingRowColors(True)
         self.result_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.result_table.setStyleSheet("""
-            QTableWidget {
-                alternate-background-color: #f8f9fa;
-            }
-        """)
         sql_layout.addWidget(self.result_table)
 
-        # 布局权重：结果表格占3份，编辑器占1份，其余固定
+        # 结果底部操作栏
+        sql_result_action_layout = QHBoxLayout()
+        sql_result_action_layout.setSpacing(8)
+        self.sql_result_count_label = QLabel('共 0 行')
+        self.sql_result_count_label.setStyleSheet('color: #636e72; font-size: 11px;')
+        sql_result_action_layout.addWidget(self.sql_result_count_label)
+        sql_result_action_layout.addStretch()
+        self.sql_load_more_btn = QPushButton('加载更多')
+        self.sql_load_more_btn.setObjectName('successButton')
+        self.sql_load_more_btn.setMinimumWidth(80)
+        self.sql_load_more_btn.clicked.connect(self.load_more_sql_result)
+        self.sql_load_more_btn.setVisible(False)
+        sql_result_action_layout.addWidget(self.sql_load_more_btn)
+        sql_layout.addLayout(sql_result_action_layout)
+
+        # 布局权重
         sql_layout.setStretchFactor(sql_title, 0)
         sql_layout.setStretchFactor(self.sql_editor, 1)
         sql_layout.setStretchFactor(sql_btn_layout, 0)
@@ -1133,13 +874,34 @@ class DBManager(QMainWindow):
 
         splitter.addWidget(right_panel)
 
-        # 分割器比例：左侧固定200px，右侧自适应
+        # 分割器比例
         splitter.setSizes([200, 800])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
 
-        # 初始状态
         self.update_ui_state()
+
+    def on_tree_item_expanded(self, item):
+        """树节点展开时懒加载列信息"""
+        item_type = item.data(0, Qt.UserRole)
+        if item_type == 'table':
+            if item.data(0, Qt.UserRole + 2) == 'columns_loaded':
+                return
+            table_name = item.data(0, Qt.UserRole + 1)
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute(f"PRAGMA table_info('{table_name}')")
+                columns = cursor.fetchall()
+                for col in columns:
+                    col_name = col[1]
+                    col_type = col[2]
+                    is_pk = '🔑 ' if col[5] else ''
+                    col_item = QTreeWidgetItem(item)
+                    col_item.setText(0, f'{is_pk}{col_name} ({col_type})')
+                    col_item.setData(0, Qt.UserRole, 'column')
+                item.setData(0, Qt.UserRole + 2, 'columns_loaded')
+            except Exception:
+                pass
 
     def open_query_wizard(self):
         """打开查询向导弹窗"""
@@ -1188,21 +950,26 @@ class DBManager(QMainWindow):
             self.conn = None
             self.current_db = None
             self.current_table = None
-            self.all_table_data = []
-            self.table_columns = []
+            self.table_total_rows = 0
+            self.table_loaded_rows = 0
+            self.sql_result_total = 0
+            self.sql_result_loaded = 0
             self.refresh_db_tree()
-            self.table_widget.setRowCount(0)
-            self.table_widget.setColumnCount(0)
+            self.table_widget.model.set_data([], [], 0)
+            self.result_table.model.set_data([], [], 0)
             self.search_column_combo.clear()
             self.search_column_combo.addItem('所有列')
             self.data_search_input.clear()
             self.current_table_label.setText('📋 当前表: 无')
             self.row_count_label.setText('共 0 行')
+            self.table_load_more_btn.setVisible(False)
+            self.sql_result_count_label.setText('共 0 行')
+            self.sql_load_more_btn.setVisible(False)
             self.update_ui_state()
             self.status_bar.showMessage('已关闭数据库', 3000)
 
     def refresh_db_tree(self):
-        """刷新数据库对象树"""
+        """刷新数据库树（懒加载，仅加载表名）"""
         self.db_tree.clear()
         if not self.conn:
             return
@@ -1227,37 +994,15 @@ class DBManager(QMainWindow):
                 table_item.setText(0, f'📋 {table_name}')
                 table_item.setData(0, Qt.UserRole, 'table')
                 table_item.setData(0, Qt.UserRole + 1, table_name)
+                table_item.setData(0, Qt.UserRole + 2, 'columns_not_loaded')
 
-                cursor.execute(f"PRAGMA table_info('{table_name}')")
-                columns = cursor.fetchall()
-                for col in columns:
-                    col_name = col[1]
-                    col_type = col[2]
-                    is_pk = '🔑 ' if col[5] else ''
-                    col_item = QTreeWidgetItem(table_item)
-                    col_item.setText(0, f'{is_pk}{col_name} ({col_type})')
-                    col_item.setData(0, Qt.UserRole, 'column')
-
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name")
-            views = cursor.fetchall()
-            if views:
-                views_group = QTreeWidgetItem(db_item)
-                views_group.setText(0, '👁 视图')
-                views_group.setData(0, Qt.UserRole, 'views_group')
-                for view in views:
-                    view_name = view[0]
-                    view_item = QTreeWidgetItem(views_group)
-                    view_item.setText(0, f'👁 {view_name}')
-                    view_item.setData(0, Qt.UserRole, 'view')
-                    view_item.setData(0, Qt.UserRole + 1, view_name)
-
-            self.db_tree.expandAll()
+            self.db_tree.expandItem(db_item)
             self.filter_db_tree(self.tree_search_input.text())
         except Exception as e:
             QMessageBox.critical(self, "错误", f"无法刷新数据库对象树: {str(e)}")
 
     def filter_db_tree(self, search_text):
-        """根据搜索文本过滤数据库对象树"""
+        """过滤数据库树"""
         search_text = search_text.strip().lower()
 
         def process_items(parent):
@@ -1317,7 +1062,7 @@ class DBManager(QMainWindow):
             top_item.setHidden(not has_visible)
 
     def on_tree_item_clicked(self, item, column):
-        """当树项被点击时"""
+        """点击树节点加载表数据"""
         item_type = item.data(0, Qt.UserRole)
         if item_type == 'table':
             table_name = item.data(0, Qt.UserRole + 1) or item.text(0)
@@ -1326,83 +1071,159 @@ class DBManager(QMainWindow):
             self.show_table_data(table_name)
 
     def show_table_data(self, table_name):
-        """显示表数据"""
+        """显示表数据（懒加载，默认仅加载前1000行）"""
         if not self.conn:
             return
         try:
             self.current_table = table_name
             self.data_search_input.clear()
             cursor = self.conn.cursor()
+
             cursor.execute(f"PRAGMA table_info('{table_name}')")
             columns = cursor.fetchall()
-            self.table_columns = columns
+            self.table_columns = [col[1] for col in columns]
 
             self.search_column_combo.clear()
             self.search_column_combo.addItem('所有列')
             for col in columns:
                 self.search_column_combo.addItem(col[1])
 
-            self.table_widget.setColumnCount(len(columns))
-            self.table_widget.setHorizontalHeaderLabels([col[1] for col in columns])
+            # 获取总行数
+            cursor.execute(f"SELECT COUNT(*) FROM '{table_name}'")
+            self.table_total_rows = cursor.fetchone()[0]
+            self.table_loaded_rows = 0
 
-            cursor.execute(f"SELECT * FROM '{table_name}'")
+            # 默认加载前1000行
+            cursor.execute(f"SELECT * FROM '{table_name}' LIMIT {self.table_page_size}")
             rows = cursor.fetchall()
-            self.all_table_data = [list(row) for row in rows]
-            self._fill_table_data(self.all_table_data)
+            self.table_loaded_rows = len(rows)
+            has_more = self.table_loaded_rows < self.table_total_rows
+
+            self.table_widget.model.set_data(
+                data=[list(row) for row in rows],
+                columns=self.table_columns,
+                total_rows=self.table_total_rows,
+                has_more=has_more
+            )
 
             self.current_table_label.setText(f'📋 当前表: {table_name}')
-            self.row_count_label.setText(f'共 {len(rows)} 行')
-            self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            self.row_count_label.setText(f'共 {self.table_total_rows} 行（已加载 {self.table_loaded_rows} 行）')
+            self.table_load_more_btn.setVisible(has_more)
+            self.table_widget.load_more_signal = self.load_more_table_data
+
             self.tab_widget.setCurrentWidget(self.table_tab)
         except Exception as e:
             QMessageBox.critical(self, "错误", f"无法显示表数据: {str(e)}")
 
-    def _fill_table_data(self, rows):
-        """填充表格数据"""
-        self.table_widget.setRowCount(len(rows))
-        for i, row in enumerate(rows):
-            for j, value in enumerate(row):
-                item = QTableWidgetItem(str(value) if value is not None else '')
-                self.table_widget.setItem(i, j, item)
+    def load_more_table_data(self):
+        """加载更多表数据"""
+        if not self.current_table or not self.conn or self.table_loaded_rows >= self.table_total_rows:
+            return
+        self.table_load_more_btn.setEnabled(False)
+        self.table_load_more_btn.setText('加载中...')
+        try:
+            cursor = self.conn.cursor()
+            offset = self.table_loaded_rows
+            cursor.execute(f"SELECT * FROM '{self.current_table}' LIMIT {self.table_page_size} OFFSET {offset}")
+            new_rows = cursor.fetchall()
+            if new_rows:
+                self.table_widget.model.add_data([list(row) for row in new_rows])
+                self.table_loaded_rows += len(new_rows)
+                self.row_count_label.setText(f'共 {self.table_total_rows} 行（已加载 {self.table_loaded_rows} 行）')
+            if self.table_loaded_rows >= self.table_total_rows:
+                self.table_load_more_btn.setVisible(False)
+            else:
+                self.table_load_more_btn.setEnabled(True)
+                self.table_load_more_btn.setText('加载更多')
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载更多数据失败: {str(e)}")
+            self.table_load_more_btn.setEnabled(True)
+            self.table_load_more_btn.setText('加载更多')
 
     def search_in_table(self, search_text):
-        """在当前表数据中搜索"""
-        if not self.current_table or not self.all_table_data:
+        """搜索表数据（优先用数据库查询）"""
+        if not self.current_table or not self.conn:
             return
         search_text = search_text.strip().lower()
         selected_column = self.search_column_combo.currentIndex() - 1
+
         if not search_text:
-            self._fill_table_data(self.all_table_data)
-            self.row_count_label.setText(f'共 {len(self.all_table_data)} 行')
+            self.show_table_data(self.current_table)
             return
-        filtered_rows = []
-        for row in self.all_table_data:
-            if selected_column == -1:
-                for value in row:
-                    if search_text in str(value).lower():
-                        filtered_rows.append(row)
-                        break
+
+        try:
+            cursor = self.conn.cursor()
+            if self.table_loaded_rows < self.table_total_rows:
+                # 未加载全量，用数据库查询
+                if selected_column == -1:
+                    cursor.execute(f"PRAGMA table_info('{self.current_table}')")
+                    columns = [col[1] for col in cursor.fetchall()]
+                    like_conditions = ' OR '.join([f'"{col}" LIKE ?' for col in columns])
+                    sql = f'SELECT * FROM "{self.current_table}" WHERE {like_conditions} LIMIT {self.table_page_size}'
+                    cursor.execute(sql, [f'%{search_text}%'] * len(columns))
+                else:
+                    col_name = self.table_columns[selected_column]
+                    sql = f'SELECT * FROM "{self.current_table}" WHERE "{col_name}" LIKE ? LIMIT {self.table_page_size}'
+                    cursor.execute(sql, [f'%{search_text}%'])
+                
+                rows = cursor.fetchall()
+                # 获取匹配总数
+                if selected_column == -1:
+                    count_sql = f"SELECT COUNT(*) FROM \"{self.current_table}\" WHERE {' OR '.join([f'\"{col}\" LIKE ?' for col in columns])}"
+                    cursor.execute(count_sql, [f'%{search_text}%'] * len(columns))
+                else:
+                    col_name = self.table_columns[selected_column]
+                    count_sql = f'SELECT COUNT(*) FROM "{self.current_table}" WHERE "{col_name}" LIKE ?'
+                    cursor.execute(count_sql, [f'%{search_text}%'])
+                total_match = cursor.fetchone()[0]
+
+                self.table_widget.model.set_data(
+                    data=[list(row) for row in rows],
+                    columns=self.table_columns,
+                    total_rows=total_match,
+                    has_more=len(rows) < total_match
+                )
+                self.table_loaded_rows = len(rows)
+                self.table_total_rows = total_match
+                self.row_count_label.setText(f'找到 {total_match} 行（已加载 {len(rows)} 行）')
+                self.table_load_more_btn.setVisible(len(rows) < total_match)
             else:
-                if selected_column < len(row) and search_text in str(row[selected_column]).lower():
-                    filtered_rows.append(row)
-        self._fill_table_data(filtered_rows)
-        self.row_count_label.setText(f'找到 {len(filtered_rows)} / {len(self.all_table_data)} 行')
+                # 已加载全量，内存搜索
+                filtered_rows = []
+                for row in self.table_widget.model._data:
+                    if selected_column == -1:
+                        for value in row:
+                            if search_text in str(value).lower():
+                                filtered_rows.append(row)
+                                break
+                    else:
+                        if selected_column < len(row) and search_text in str(row[selected_column]).lower():
+                            filtered_rows.append(row)
+                self.table_widget.model.set_data(
+                    data=filtered_rows,
+                    columns=self.table_columns,
+                    total_rows=len(filtered_rows),
+                    has_more=False
+                )
+                self.row_count_label.setText(f'找到 {len(filtered_rows)} 行')
+                self.table_load_more_btn.setVisible(False)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"搜索失败: {str(e)}")
 
     def clear_data_search(self):
-        """清除数据搜索"""
+        """清除搜索"""
         self.data_search_input.clear()
-        if self.all_table_data:
-            self._fill_table_data(self.all_table_data)
-            self.row_count_label.setText(f'共 {len(self.all_table_data)} 行')
+        if self.current_table:
+            self.show_table_data(self.current_table)
 
     def refresh_current_table(self):
-        """刷新当前表数据"""
+        """刷新当前表"""
         if self.current_table:
             self.show_table_data(self.current_table)
             self.status_bar.showMessage(f'已刷新表: {self.current_table}', 3000)
 
     def show_tree_context_menu(self, position):
-        """显示树形菜单的上下文菜单"""
+        """树右键菜单"""
         item = self.db_tree.itemAt(position)
         if not item:
             return
@@ -1415,7 +1236,7 @@ class DBManager(QMainWindow):
         menu.exec_(self.db_tree.mapToGlobal(position))
 
     def execute_sql(self):
-        """执行SQL查询"""
+        """执行SQL（大结果提示+分批加载）"""
         if not self.conn:
             QMessageBox.warning(self, "警告", "请先打开数据库")
             return
@@ -1429,21 +1250,71 @@ class DBManager(QMainWindow):
             if sql.upper().lstrip().startswith('SELECT'):
                 rows = cursor.fetchall()
                 columns = [description[0] for description in cursor.description]
-                self.result_table.setColumnCount(len(columns))
-                self.result_table.setHorizontalHeaderLabels(columns)
-                self.result_table.setRowCount(len(rows))
-                for i, row in enumerate(rows):
-                    for j, value in enumerate(row):
-                        item = QTableWidgetItem(str(value) if value is not None else '')
-                        self.result_table.setItem(i, j, item)
-                self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-                self.status_bar.showMessage(f'查询返回 {len(rows)} 行结果', 3000)
+                total_rows = len(rows)
+                self.sql_result_total = total_rows
+                self.sql_result_loaded = 0
+
+                # 大结果提示
+                if total_rows > 1000:
+                    reply = QMessageBox.question(
+                        self, '提示',
+                        f'查询返回 {total_rows} 行数据，加载全部可能耗时较久，是否仅加载前1000行？',
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.Yes:
+                        rows = rows[:1000]
+                        total_rows = 1000
+                        has_more = True
+                    else:
+                        has_more = False
+                else:
+                    has_more = False
+
+                self.result_table.model.set_data(
+                    data=[list(row) for row in rows],
+                    columns=columns,
+                    total_rows=total_rows,
+                    has_more=has_more
+                )
+                self.sql_result_loaded = len(rows)
+                self.sql_result_count_label.setText(f'共 {total_rows} 行（已加载 {len(rows)} 行）')
+                self.sql_load_more_btn.setVisible(has_more)
+                self.result_table.load_more_signal = self.load_more_sql_result
+
+                self.status_bar.showMessage(f'查询返回 {total_rows} 行结果', 3000)
             else:
                 self.conn.commit()
                 self.status_bar.showMessage(f'SQL执行成功，影响了 {cursor.rowcount} 行', 3000)
                 self.refresh_db_tree()
         except Exception as e:
             QMessageBox.critical(self, "错误", f"SQL执行错误: {str(e)}")
+
+    def load_more_sql_result(self):
+        """加载更多SQL结果"""
+        if not self.conn or self.sql_result_loaded >= self.sql_result_total:
+            return
+        self.sql_load_more_btn.setEnabled(False)
+        self.sql_load_more_btn.setText('加载中...')
+        try:
+            cursor = self.conn.cursor()
+            sql = self.sql_editor.toPlainText().strip()
+            offset = self.sql_result_loaded
+            cursor.execute(f"{sql} LIMIT {self.table_page_size} OFFSET {offset}")
+            new_rows = cursor.fetchall()
+            if new_rows:
+                self.result_table.model.add_data([list(row) for row in new_rows])
+                self.sql_result_loaded += len(new_rows)
+                self.sql_result_count_label.setText(f'共 {self.sql_result_total} 行（已加载 {self.sql_result_loaded} 行）')
+            if self.sql_result_loaded >= self.sql_result_total:
+                self.sql_load_more_btn.setVisible(False)
+            else:
+                self.sql_load_more_btn.setEnabled(True)
+                self.sql_load_more_btn.setText('加载更多')
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载更多结果失败: {str(e)}")
+            self.sql_load_more_btn.setEnabled(True)
+            self.sql_load_more_btn.setText('加载更多')
 
 
 if __name__ == '__main__':
