@@ -105,7 +105,7 @@ SQL_Manager/
 
 ## 技术栈
 
-- **GUI 框架**: PyQt5
+- **GUI 框架**: PyQt5=>PyQt6(v2.0.0及以上)
 - **数据库**: SQLite3 (Python 内置)
 - **样式**: QSS (Qt Style Sheets)
 
