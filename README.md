@@ -1,6 +1,6 @@
 # SQLite 数据库管理工具
 
-一个功能强大、界面现代化的 SQLite 数据库可视化管理工具，基于 PyQt5 开发，提供直观的图形界面来管理 SQLite 数据库。
+一个功能强大、界面现代化的 SQLite 数据库可视化管理工具，基于 PyQt5（v2.0.0版本改为PyQt6） 开发，提供直观的图形界面来管理 SQLite 数据库。
 
 ## 功能特性
 
@@ -42,16 +42,16 @@
 ## 安装说明
 
 ### 环境要求
-- Python 3.6 或更高版本
+- Python 3.13.3 或更高版本
 
 ### 依赖安装
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt #还未修改
 ```
 
 或手动安装依赖：
 ```bash
-pip install PyQt5>=5.15.0
+pip install PyQt6
 ```
 
 ## 使用方法
@@ -93,10 +93,14 @@ python app.py
 
 ```
 SQL_Manager/
-├── app.py              # 主程序文件
-├── requirements.txt    # 依赖包列表
-├── readme.md          # 项目说明文档
-└── output/            # 输出目录
+├── app.py              # 程序入口
+├── main_window.py      # 主窗口逻辑
+├── config.py           # 全局配置
+├── components.py       # 自定义组件（搜索框、虚拟表格）
+├── dialogs.py          # 弹窗逻辑（查询向导）
+├── style.css           # 界面样式
+├── icon.ico            # 程序图标
+└── README.md           # 项目说明
 ```
 
 ## 技术栈
@@ -114,14 +118,15 @@ SQL_Manager/
 欢迎提交问题报告和功能建议！
 
 ## 更新日志
+- v2.0.0 升级GUI框架至PyQt6，优化页面性能
 - v1.2.1 修复已知问题（自v1.1.0出现的恶性bug,包括但不限于开启的SQL过大导致的窗口崩毁等），重构项目代码，提高运行效率、优化打包方式
 - v1.2.0 针对大量数据的数据库的查看做出优化，部分代码用了更快速的语言进行覆写
 - v1.1.0 修复已知问题，提高软件性能，简化操作逻辑
 - v1.0.0 修复已知问题
 
 ## 更新预告
-
-- v2.0.0 升级GUI框架至PyQt6，优化页面性能
+- v2.0.2 新增English和Chinese语言的切换
+- v2.0.3 适配My_SQL
 
 ### 当前版本
 - 实现基本的数据库管理功能
