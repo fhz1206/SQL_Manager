@@ -126,11 +126,47 @@ QTextEdit {
     color: #ecf0f1;
     border: 1px solid #dcdde1;
     border-radius: 8px;
-    padding: 8px;
+    padding: 10px;
     font-family: 'Consolas', 'Courier New', monospace;
     font-size: 13px;
     selection-background-color: #3498db;
     selection-color: #ffffff;
+    line-height: 1.4;
+}
+
+/* SQL编辑器特殊样式 */
+#sqlEditor {
+    background-color: #1e272e;
+    color: #dfe6e9;
+    border: 1px solid #2c3e50;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    selection-background-color: #3498db;
+    selection-color: #ffffff;
+    line-height: 1.5;
+}
+
+#sqlEditor:focus {
+    border: 2px solid #3498db;
+    outline: none;
+}
+
+/* 语法高亮样式 */
+QTextEdit#sqlEditor .keyword {
+    color: #3498db;
+    font-weight: bold;
+}
+QTextEdit#sqlEditor .string {
+    color: #2ecc71;
+}
+QTextEdit#sqlEditor .number {
+    color: #e74c3c;
+}
+QTextEdit#sqlEditor .comment {
+    color: #95a5a6;
+    font-style: italic;
 }
 QPushButton {
     background-color: #3498db;
