@@ -7,7 +7,19 @@ from config import ICON_PATH
 
 
 class QueryWizardDialog(QDialog):
-    """查询向导弹窗 - 生成SQL后自动填入编辑器"""
+    """查询向导弹窗
+    
+    提供可视化界面帮助用户构建SQL查询语句,包括:
+    - 选择要查询的表
+    - 选择要查询的列
+    - 设置筛选条件(支持AND/OR逻辑)
+    - 实时预览生成的SQL
+    - 生成并执行查询
+    
+    属性:
+        conn: 数据库连接对象
+        generated_sql: 生成的SQL语句
+    """
     def __init__(self, conn, parent=None):
         super().__init__(parent)
         self.conn = conn
@@ -17,7 +29,7 @@ class QueryWizardDialog(QDialog):
     def init_ui(self):
         self.setWindowTitle('🔍 查询向导')
         self.setWindowIcon(QIcon(ICON_PATH))
-        self.setMinimumSize(700, 800)
+        self.setMinimumSize(600, 700)
         # 弹窗独立样式
         self.setStyleSheet('''
             QDialog {
@@ -70,23 +82,23 @@ class QueryWizardDialog(QDialog):
         ''')
 
         main_layout = QVBoxLayout()
-        main_layout.setSpacing(12)
-        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(12, 12, 12, 12)
         self.setLayout(main_layout)
 
         # 标题
-        title_label = QLabel('🔍 查询向导 - 轻松构建查询')
-        title_label.setStyleSheet('font-size: 18px; font-weight: bold; color: #2c3e50;')
+        title_label = QLabel('🔍 查询向导')
+        title_label.setStyleSheet('font-size: 16px; font-weight: bold; color: #2c3e50; margin-bottom: 4px;')
         main_layout.addWidget(title_label)
 
-        desc_label = QLabel('按照步骤选择表、列和条件，自动生成 SQL 查询语句')
-        desc_label.setStyleSheet('font-size: 12px; color: #636e72; margin-bottom: 6px;')
+        desc_label = QLabel('选择表、列和条件，自动生成 SQL 查询语句')
+        desc_label.setStyleSheet('font-size: 11px; color: #636e72; margin-bottom: 4px;')
         main_layout.addWidget(desc_label)
 
         # ===== 步骤1: 选择表 =====
-        step1_group = QGroupBox('步骤1: 选择要查询的表')
+        step1_group = QGroupBox('选择表')
         step1_layout = QHBoxLayout()
-        step1_layout.setContentsMargins(12, 8, 12, 8)
+        step1_layout.setContentsMargins(10, 6, 10, 6)
         step1_group.setLayout(step1_layout)
 
         self.table_combo = QComboBox()
@@ -98,9 +110,9 @@ class QueryWizardDialog(QDialog):
         main_layout.addWidget(step1_group)
 
         # ===== 步骤2: 选择列 =====
-        step2_group = QGroupBox('步骤2: 选择要查询的列')
+        step2_group = QGroupBox('选择列')
         step2_layout = QVBoxLayout()
-        step2_layout.setContentsMargins(12, 8, 12, 8)
+        step2_layout.setContentsMargins(10, 6, 10, 6)
         step2_group.setLayout(step2_layout)
 
         # 全选/取消全选
@@ -120,8 +132,8 @@ class QueryWizardDialog(QDialog):
         # 列选择区域（使用滚动区域）
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(80)
-        scroll_area.setMaximumHeight(160)
+        scroll_area.setMinimumHeight(100)
+        scroll_area.setMaximumHeight(140)
         scroll_area.setStyleSheet('''
             QScrollArea {
                 border: 1px solid #dcdde1;
@@ -131,8 +143,8 @@ class QueryWizardDialog(QDialog):
         ''')
 
         self.columns_widget = QWidget()
-        self.columns_layout = QHBoxLayout()
-        self.columns_layout.setSpacing(18)
+        self.columns_layout = QVBoxLayout()
+        self.columns_layout.setSpacing(8)
         self.columns_widget.setLayout(self.columns_layout)
         scroll_area.setWidget(self.columns_widget)
         step2_layout.addWidget(scroll_area)
@@ -140,20 +152,21 @@ class QueryWizardDialog(QDialog):
         main_layout.addWidget(step2_group)
 
         # ===== 步骤3: 设置筛选条件 =====
-        step3_group = QGroupBox('步骤3: 设置筛选条件（可选）')
+        step3_group = QGroupBox('筛选条件（可选）')
         step3_layout = QVBoxLayout()
-        step3_layout.setContentsMargins(12, 8, 12, 8)
-        step3_layout.setSpacing(10)
+        step3_layout.setContentsMargins(10, 6, 10, 6)
+        step3_layout.setSpacing(6)
         step3_group.setLayout(step3_layout)
 
         # 筛选条件行
         filter_row = QHBoxLayout()
-        filter_row.setSpacing(12)
+        filter_row.setSpacing(8)
 
         filter_row.addWidget(QLabel('列:'))
         self.filter_column_combo = QComboBox()
-        self.filter_column_combo.setMinimumWidth(130)
-        self.filter_column_combo.setMinimumHeight(34)
+        self.filter_column_combo.setMinimumWidth(110)
+        self.filter_column_combo.setMaximumWidth(130)
+        self.filter_column_combo.setMinimumHeight(30)
         filter_row.addWidget(self.filter_column_combo)
 
         filter_row.addWidget(QLabel('条件:'))
@@ -163,23 +176,25 @@ class QueryWizardDialog(QDialog):
             '小于 (<)', '小于等于 (<=)', '包含 (LIKE)', '以...开头', 
             '以...结尾', '为空 (IS NULL)', '不为空 (IS NOT NULL)',
         ])
-        self.filter_op_combo.setMinimumWidth(150)
-        self.filter_op_combo.setMinimumHeight(34)
+        self.filter_op_combo.setMinimumWidth(130)
+        self.filter_op_combo.setMaximumWidth(150)
+        self.filter_op_combo.setMinimumHeight(30)
         self.filter_op_combo.currentIndexChanged.connect(self._on_operator_changed)
         filter_row.addWidget(self.filter_op_combo)
 
         filter_row.addWidget(QLabel('值:'))
         self.filter_value_input = QLineEdit()
         self.filter_value_input.setPlaceholderText('输入筛选值...')
-        self.filter_value_input.setMinimumWidth(160)
-        self.filter_value_input.setMinimumHeight(34)
+        self.filter_value_input.setMinimumWidth(120)
+        self.filter_value_input.setMaximumWidth(140)
+        self.filter_value_input.setMinimumHeight(30)
         filter_row.addWidget(self.filter_value_input)
 
         step3_layout.addLayout(filter_row)
 
         # 第二个筛选条件
         filter_row2 = QHBoxLayout()
-        filter_row2.setSpacing(12)
+        filter_row2.setSpacing(8)
 
         self.and_radio = QCheckBox('并且 (AND)')
         self.or_radio = QCheckBox('或者 (OR)')
@@ -193,12 +208,13 @@ class QueryWizardDialog(QDialog):
 
         # 第二行条件
         filter_row3 = QHBoxLayout()
-        filter_row3.setSpacing(12)
+        filter_row3.setSpacing(8)
 
         filter_row3.addWidget(QLabel('列:'))
         self.filter_column_combo2 = QComboBox()
-        self.filter_column_combo2.setMinimumWidth(130)
-        self.filter_column_combo2.setMinimumHeight(34)
+        self.filter_column_combo2.setMinimumWidth(110)
+        self.filter_column_combo2.setMaximumWidth(130)
+        self.filter_column_combo2.setMinimumHeight(30)
         filter_row3.addWidget(self.filter_column_combo2)
 
         filter_row3.addWidget(QLabel('条件:'))
@@ -208,16 +224,18 @@ class QueryWizardDialog(QDialog):
             '小于 (<)', '小于等于 (<=)', '包含 (LIKE)', '以...开头', 
             '以...结尾', '为空 (IS NULL)', '不为空 (IS NOT NULL)',
         ])
-        self.filter_op_combo2.setMinimumWidth(150)
-        self.filter_op_combo2.setMinimumHeight(34)
+        self.filter_op_combo2.setMinimumWidth(130)
+        self.filter_op_combo2.setMaximumWidth(150)
+        self.filter_op_combo2.setMinimumHeight(30)
         self.filter_op_combo2.currentIndexChanged.connect(self._on_operator_changed2)
         filter_row3.addWidget(self.filter_op_combo2)
 
         filter_row3.addWidget(QLabel('值:'))
         self.filter_value_input2 = QLineEdit()
         self.filter_value_input2.setPlaceholderText('输入筛选值...')
-        self.filter_value_input2.setMinimumWidth(160)
-        self.filter_value_input2.setMinimumHeight(34)
+        self.filter_value_input2.setMinimumWidth(120)
+        self.filter_value_input2.setMaximumWidth(140)
+        self.filter_value_input2.setMinimumHeight(30)
         filter_row3.addWidget(self.filter_value_input2)
 
         step3_layout.addLayout(filter_row3)
@@ -225,24 +243,24 @@ class QueryWizardDialog(QDialog):
         main_layout.addWidget(step3_group)
 
         # ===== 预览SQL =====
-        preview_group = QGroupBox('生成的 SQL 语句')
+        preview_group = QGroupBox('SQL 预览')
         preview_layout = QVBoxLayout()
-        preview_layout.setContentsMargins(10, 6, 10, 6)
+        preview_layout.setContentsMargins(8, 4, 8, 4)
         preview_group.setLayout(preview_layout)
 
         self.sql_preview = QTextEdit()
         self.sql_preview.setReadOnly(True)
-        self.sql_preview.setMinimumHeight(40)
-        self.sql_preview.setMaximumHeight(65)
+        self.sql_preview.setMinimumHeight(30)
+        self.sql_preview.setMaximumHeight(50)
         self.sql_preview.setStyleSheet('''
             QTextEdit {
                 background-color: #2c3e50;
                 color: #2ecc71;
                 border: 1px solid #dcdde1;
                 border-radius: 6px;
-                padding: 8px;
+                padding: 6px;
                 font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 13px;
+                font-size: 12px;
             }
         ''')
         preview_layout.addWidget(self.sql_preview)
@@ -251,27 +269,27 @@ class QueryWizardDialog(QDialog):
 
         # ===== 按钮 =====
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(12)
+        btn_layout.setSpacing(6)
 
         preview_btn = QPushButton('👁 预览SQL')
-        preview_btn.setMinimumHeight(36)
-        preview_btn.setMinimumWidth(90)
+        preview_btn.setMinimumHeight(28)
+        preview_btn.setMaximumWidth(70)
         preview_btn.clicked.connect(self._generate_sql)
         btn_layout.addWidget(preview_btn)
 
         btn_layout.addStretch()
 
         cancel_btn = QPushButton('取消')
-        cancel_btn.setMinimumHeight(36)
-        cancel_btn.setMinimumWidth(70)
+        cancel_btn.setMinimumHeight(28)
+        cancel_btn.setMaximumWidth(60)
         cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(cancel_btn)
 
         # 生成并执行按钮
         execute_btn = QPushButton('▶ 生成并执行')
         execute_btn.setObjectName('successButton')
-        execute_btn.setMinimumHeight(36)
-        execute_btn.setMinimumWidth(100)
+        execute_btn.setMinimumHeight(28)
+        execute_btn.setMaximumWidth(70)
         execute_btn.setStyleSheet('''
             QPushButton {
                 background-color: #27ae60;
@@ -297,7 +315,7 @@ class QueryWizardDialog(QDialog):
         self._on_table_changed(self.table_combo.currentText())
 
     def _load_tables(self):
-        """加载所有表名"""
+        """加载所有表名到下拉框"""
         self.table_combo.clear()
         if not self.conn:
             return
@@ -311,12 +329,20 @@ class QueryWizardDialog(QDialog):
             pass
 
     def _on_table_changed(self, table_name):
-        """当选择的表变化时，更新列信息"""
+        """当选择的表变化时，更新列信息
+        
+        Args:
+            table_name: 新选择的表名
+        """
         self._load_columns(table_name)
         self._generate_sql()
 
     def _load_columns(self, table_name):
-        """加载指定表的列信息"""
+        """加载指定表的列信息
+        
+        Args:
+            table_name: 表名
+        """
         while self.columns_layout.count():
             item = self.columns_layout.takeAt(0)
             if item.widget():
@@ -360,17 +386,21 @@ class QueryWizardDialog(QDialog):
             pass
 
     def _select_all_columns(self):
-        """全选列"""
+        """选中所有列"""
         for check in self.column_checks:
             check.setChecked(True)
 
     def _deselect_all_columns(self):
-        """取消全选列"""
+        """取消选中所有列"""
         for check in self.column_checks:
             check.setChecked(False)
 
     def _on_operator_changed(self, idx):
-        """当操作符变化时，控制值输入框的启用状态"""
+        """当操作符变化时，控制值输入框的启用状态
+        
+        Args:
+            idx: 操作符索引
+        """
         is_null_op = idx in (9, 10)
         self.filter_value_input.setEnabled(not is_null_op)
         if is_null_op:
@@ -380,7 +410,11 @@ class QueryWizardDialog(QDialog):
             self.filter_value_input.setPlaceholderText('输入筛选值...')
 
     def _on_operator_changed2(self, idx):
-        """当第二个操作符变化时"""
+        """当第二个操作符变化时
+        
+        Args:
+            idx: 操作符索引
+        """
         is_null_op = idx in (9, 10)
         self.filter_value_input2.setEnabled(not is_null_op)
         if is_null_op:
@@ -390,7 +424,16 @@ class QueryWizardDialog(QDialog):
             self.filter_value_input2.setPlaceholderText('输入筛选值...')
 
     def _build_condition(self, column, op_idx, value):
-        """构建单个筛选条件"""
+        """构建单个筛选条件
+        
+        Args:
+            column: 列名
+            op_idx: 操作符索引
+            value: 筛选值
+            
+        Returns:
+            str: SQL条件语句
+        """
         ops = ['=', '!=', '>', '>=', '<', '<=', 'LIKE', 'LIKE', 'LIKE', 'IS NULL', 'IS NOT NULL']
         op = ops[op_idx] if op_idx < len(ops) else '='
 
@@ -408,7 +451,11 @@ class QueryWizardDialog(QDialog):
             return f'"{column}" {op} \'{value}\''
 
     def _generate_sql(self):
-        """生成SQL语句"""
+        """生成SQL查询语句
+        
+        Returns:
+            str: 生成的SQL语句
+        """
         table_name = self.table_combo.currentText()
         if not table_name:
             self.sql_preview.setPlainText('')
@@ -450,10 +497,14 @@ class QueryWizardDialog(QDialog):
         return sql
 
     def _execute_query(self):
-        """生成并执行查询"""
+        """生成并执行查询
+        
+        生成SQL并关闭对话框,由主窗口执行查询
+        """
         sql = self._generate_sql()
         if not sql:
-            QMessageBox.warning(self, '警告', '请先选择表和列')
+            from custom_dialogs import show_warning
+            show_warning('警告', '请先选择表和列', self)
             return
         self.generated_sql = sql
         self.accept()
