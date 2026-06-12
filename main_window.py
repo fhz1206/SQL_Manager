@@ -1,21 +1,67 @@
 import sys
 import os
 import sqlite3
+import time
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QHeaderView, QMessageBox, QTabWidget, 
                              QLabel, QLineEdit, QComboBox, QFileDialog, QSplitter, 
                              QTreeWidget, QTreeWidgetItem, QMenu, QStatusBar, 
                              QToolBar, QTextEdit, QFrame, QSizePolicy, QAbstractItemView,
                              QCheckBox, QGroupBox, QScrollArea, QDialog)
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QThreadPool, QRunnable
 from PyQt6.QtGui import QIcon, QAction
 
-from config import ICON_PATH, CSS_PATH, TABLE_PAGE_SIZE, SQL_RESULT_PROMPT_THRESHOLD
+from config import (ICON_PATH, CSS_PATH, TABLE_PAGE_SIZE, SQL_RESULT_PROMPT_THRESHOLD,
+                   USE_PRAGMA_WAL, USE_PRAGMA_JOURNAL_MODE, USE_PRAGMA_SYNCHRONOUS,
+                   USE_PRAGMA_TEMP_STORE, USE_PRAGMA_MMAP_SIZE, SQL_TIMEOUT,
+                   MAX_CONCURRENT_QUERIES)
 from components import SearchLineEdit, VirtualTableWidget
 from dialogs import QueryWizardDialog
+from custom_dialogs import show_error, show_warning
+from version import VERSION, VERSION_DESCRIPTION
+from db_manager import DatabaseConnection
+from db_connect_dialog import DatabaseConnectDialog
+
+
+class QueryTask(QRunnable):
+    """异步查询任务类
+    
+    用于在后台线程执行SQL查询，避免阻塞UI
+    """
+    def __init__(self, conn, sql, callback):
+        super().__init__()
+        self.conn = conn
+        self.sql = sql
+        self.callback = callback
+        self.setAutoDelete(True)
+        
+    def run(self):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(self.sql)
+            if self.sql.upper().lstrip().startswith('SELECT'):
+                rows = cursor.fetchall()
+                columns = [description[0] for description in cursor.description]
+                self.callback(rows, columns, len(rows))
+            else:
+                self.conn.commit()
+                self.callback(None, None, cursor.rowcount)
+        except Exception as e:
+            self.callback(None, None, -1, str(e))
 
 
 class DBManager(QMainWindow):
+    """数据库管理器主窗口
+    
+    功能:
+    - 打开/关闭数据库
+    - 浏览数据库对象树
+    - 查看和编辑表数据
+    - 执行自定义SQL查询
+    - 使用查询向导构建SQL
+    - 支持虚拟表格和分批加载
+    - 支持网络数据库连接
+    """
     def __init__(self):
         super().__init__()
         self.current_db = None
@@ -26,10 +72,23 @@ class DBManager(QMainWindow):
         self.table_columns = []
         self.sql_result_total = 0
         self.sql_result_loaded = 0
+        
+        # 性能优化相关初始化
+        self.thread_pool = QThreadPool.globalInstance()
+        self.active_queries = 0
+        self.query_queue = []
+        
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle('SQLite 数据库查看工具')
+        """初始化用户界面
+        
+        创建主窗口布局,包括:
+        - 工具栏(打开/关闭数据库)
+        - 左侧数据库对象树
+        - 右侧数据表和SQL查询选项卡
+        """
+        self.setWindowTitle(f'SQLite 数据库查看工具 v{VERSION}')
         self.setWindowIcon(QIcon(ICON_PATH))
         self.setGeometry(80, 80, 1000, 650)
         self.setMinimumSize(800, 500)
@@ -52,12 +111,22 @@ class DBManager(QMainWindow):
         open_db_action = QAction('📂 打开数据库', self)
         open_db_action.triggered.connect(self.open_database)
         toolbar.addAction(open_db_action)
+        
+        open_net_db_action = QAction('🌐 连接网络数据库', self)
+        open_net_db_action.triggered.connect(self.open_network_database)
+        toolbar.addAction(open_net_db_action)
 
         toolbar.addSeparator()
 
         close_db_action = QAction('✖ 关闭数据库', self)
         close_db_action.triggered.connect(self.close_database)
         toolbar.addAction(close_db_action)
+        
+        toolbar.addSeparator()
+        
+        about_action = QAction('ℹ 关于', self)
+        about_action.triggered.connect(self.show_about)
+        toolbar.addAction(about_action)
 
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -173,10 +242,44 @@ class DBManager(QMainWindow):
         self.sql_tab.setLayout(sql_layout)
 
         sql_header_layout = QHBoxLayout()
+        sql_header_layout.setSpacing(12)
         sql_title = QLabel('💻 SQL 查询编辑器')
         sql_title.setObjectName('titleLabel')
         sql_header_layout.addWidget(sql_title)
-
+        
+        # 添加SQL示例下拉菜单
+        sql_examples = QComboBox()
+        sql_examples.addItems([
+            "选择SQL示例...",
+            "SELECT * FROM table_name",
+            "SELECT column1, column2 FROM table_name",
+            "SELECT * FROM table_name WHERE condition",
+            "SELECT * FROM table_name ORDER BY column",
+            "SELECT COUNT(*) FROM table_name",
+            "SELECT DISTINCT column FROM table_name",
+            "SELECT column FROM table_name LIMIT 10"
+        ])
+        sql_examples.setMinimumWidth(180)
+        sql_examples.setStyleSheet("""
+            QComboBox {
+                background-color: #f8f9fa;
+                border: 1px solid #dcdde1;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+                color: #2c3e50;
+            }
+            QComboBox:hover {
+                border-color: #3498db;
+            }
+            QComboBox::drop-down {
+                border: none;
+                padding-right: 5px;
+            }
+        """)
+        sql_examples.currentIndexChanged.connect(self.on_sql_example_selected)
+        sql_header_layout.addWidget(sql_examples)
+        
         query_wizard_btn = QPushButton('🔍 查询向导')
         query_wizard_btn.setObjectName('wizardButton')
         query_wizard_btn.setStyleSheet('''
@@ -199,11 +302,37 @@ class DBManager(QMainWindow):
         ''')
         query_wizard_btn.clicked.connect(self.open_query_wizard)
         sql_header_layout.addWidget(query_wizard_btn)
+        
+        # 添加格式化按钮
+        format_btn = QPushButton('📝 格式化')
+        format_btn.setObjectName('formatButton')
+        format_btn.setMinimumWidth(80)
+        format_btn.setStyleSheet("""
+            QPushButton#formatButton {
+                background-color: #16a085;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+                min-width: 80px;
+            }
+            QPushButton#formatButton:hover {
+                background-color: #138d75;
+            }
+            QPushButton#formatButton:pressed {
+                background-color: #0e6655;
+            }
+        """)
+        format_btn.clicked.connect(self.format_sql)
+        sql_header_layout.addWidget(format_btn)
 
         sql_header_layout.addStretch()
         sql_layout.addLayout(sql_header_layout)
 
         self.sql_editor = QTextEdit()
+        self.sql_editor.setObjectName('sqlEditor')
         self.sql_editor.setPlaceholderText('输入 SQL 查询语句...\n\n例如: SELECT * FROM table_name WHERE id > 10')
         self.sql_editor.setMinimumHeight(120)
         self.sql_editor.setMaximumHeight(400)
@@ -266,6 +395,11 @@ class DBManager(QMainWindow):
         self.update_ui_state()
 
     def on_tree_item_expanded(self, item):
+        """当树形节点展开时加载列信息
+        
+        Args:
+            item: 被展开的树形节点
+        """
         item_type = item.data(0, Qt.ItemDataRole.UserRole)
         if item_type == 'table':
             if item.data(0, Qt.ItemDataRole.UserRole + 2) == 'columns_loaded':
@@ -287,6 +421,10 @@ class DBManager(QMainWindow):
                 pass
 
     def open_query_wizard(self):
+        """打开查询向导弹窗
+        
+        如果查询成功,将生成的SQL填入编辑器并执行
+        """
         if not self.conn:
             QMessageBox.warning(self, '警告', '请先打开数据库')
             return
@@ -300,6 +438,10 @@ class DBManager(QMainWindow):
                 self.status_bar.showMessage('查询向导已生成并执行查询', 3000)
 
     def update_ui_state(self):
+        """根据数据库连接状态更新UI
+        
+        更新状态栏和控件可用性
+        """
         has_db = self.conn is not None
         if has_db:
             self.status_bar.showMessage(f'当前数据库: {self.current_db}')
@@ -307,6 +449,10 @@ class DBManager(QMainWindow):
             self.status_bar.showMessage('未打开数据库 - 请打开一个数据库文件')
 
     def open_database(self):
+        """打开SQLite数据库文件
+        
+        支持格式: .db, .sqlite, .sqlite3
+        """
         file_name, _ = QFileDialog.getOpenFileName(
             self, "打开SQLite数据库", "", "SQLite数据库 (*.db *.sqlite *.sqlite3);;所有文件 (*)")
         
@@ -320,11 +466,50 @@ class DBManager(QMainWindow):
                 self.update_ui_state()
                 self.status_bar.showMessage(f'已打开数据库: {file_name}', 3000)
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"无法打开数据库: {str(e)}")
+                show_error("错误", f"无法打开数据库: {str(e)}", self)
+
+    def open_network_database(self):
+        """打开网络数据库连接
+        
+        支持MySQL和PostgreSQL数据库
+        """
+        dialog = DatabaseConnectDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            connection_params = dialog.get_connection_params()
+            if connection_params:
+                try:
+                    if self.conn:
+                        self.conn.close()
+                    
+                    # 使用新的数据库连接管理器
+                    db_type = connection_params["type"]
+                    db_params = connection_params["params"]
+                    
+                    self.current_db = f"{db_type}://{db_params.get('host', 'localhost')}:{db_params.get('port', 3306)}/{db_params.get('database', '')}"
+                    
+                    # 创建数据库连接
+                    self.conn = DatabaseConnection(db_type, db_params)
+                    if self.conn.connect():
+                        self.refresh_db_tree()
+                        self.update_ui_state()
+                        self.status_bar.showMessage(f"已连接到数据库: {self.current_db}", 3000)
+                    else:
+                        show_error("错误", "无法连接到数据库，请检查连接参数", self)
+                        self.conn = None
+                except Exception as e:
+                    show_error("错误", f"无法连接到数据库: {str(e)}", self)
 
     def close_database(self):
+        """关闭当前数据库连接
+        
+        清空所有数据和UI状态
+        """
         if self.conn:
-            self.conn.close()
+            # 使用数据库连接管理器的断开连接方法
+            if hasattr(self.conn, "disconnect"):
+                self.conn.disconnect()
+            else:
+                self.conn.close()
             self.conn = None
             self.current_db = None
             self.current_table = None
@@ -344,6 +529,10 @@ class DBManager(QMainWindow):
             self.status_bar.showMessage('已关闭数据库', 3000)
 
     def refresh_db_tree(self):
+        """刷新数据库对象树
+        
+        重新加载所有表和视图
+        """
         self.db_tree.clear()
         if not self.conn:
             return
@@ -355,27 +544,47 @@ class DBManager(QMainWindow):
         db_item.setData(0, Qt.ItemDataRole.UserRole + 1, self.current_db)
 
         try:
-            cursor = self.conn.cursor()
-            tables_group = QTreeWidgetItem(db_item)
-            tables_group.setText(0, '📊 表')
-            tables_group.setData(0, Qt.ItemDataRole.UserRole, 'tables_group')
+            # 检查是否是新的数据库连接管理器
+            if hasattr(self.conn, "get_tables"):
+                # 使用新连接管理器的方法获取表列表
+                tables = self.conn.get_tables()
+                tables_group = QTreeWidgetItem(db_item)
+                tables_group.setText(0, '📊 表')
+                tables_group.setData(0, Qt.ItemDataRole.UserRole, 'tables_group')
 
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-            tables = cursor.fetchall()
-            for table in tables:
-                table_name = table[0]
-                table_item = QTreeWidgetItem(tables_group)
-                table_item.setText(0, f'📋 {table_name}')
-                table_item.setData(0, Qt.ItemDataRole.UserRole, 'table')
-                table_item.setData(0, Qt.ItemDataRole.UserRole + 1, table_name)
-                table_item.setData(0, Qt.ItemDataRole.UserRole + 2, 'columns_not_loaded')
+                for table_name in tables:
+                    table_item = QTreeWidgetItem(tables_group)
+                    table_item.setText(0, f'📋 {table_name}')
+                    table_item.setData(0, Qt.ItemDataRole.UserRole, 'table')
+                    table_item.setData(0, Qt.ItemDataRole.UserRole + 1, table_name)
+            else:
+                # 使用原有方法处理SQLite数据库
+                cursor = self.conn.cursor()
+                tables_group = QTreeWidgetItem(db_item)
+                tables_group.setText(0, '📊 表')
+                tables_group.setData(0, Qt.ItemDataRole.UserRole, 'tables_group')
+
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+                tables = cursor.fetchall()
+                for table in tables:
+                    table_name = table[0]
+                    table_item = QTreeWidgetItem(tables_group)
+                    table_item.setText(0, f'📋 {table_name}')
+                    table_item.setData(0, Qt.ItemDataRole.UserRole, 'table')
+                    table_item.setData(0, Qt.ItemDataRole.UserRole + 1, table_name)
+                    table_item.setData(0, Qt.ItemDataRole.UserRole + 2, 'columns_not_loaded')
 
             self.db_tree.expandItem(db_item)
             self.filter_db_tree(self.tree_search_input.text())
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"无法刷新数据库对象树: {str(e)}")
+            show_error("错误", f"无法刷新数据库对象树: {str(e)}", self)
 
     def filter_db_tree(self, search_text):
+        """根据搜索文本过滤数据库对象树
+        
+        Args:
+            search_text: 搜索关键词
+        """
         search_text = search_text.strip().lower()
 
         def process_items(parent):
@@ -435,6 +644,12 @@ class DBManager(QMainWindow):
             top_item.setHidden(not has_visible)
 
     def on_tree_item_clicked(self, item, column):
+        """处理树形节点点击事件
+        
+        Args:
+            item: 被点击的节点
+            column: 点击的列索引
+        """
         item_type = item.data(0, Qt.ItemDataRole.UserRole)
         if item_type == 'table':
             table_name = item.data(0, Qt.ItemDataRole.UserRole + 1) or item.text(0)
@@ -443,6 +658,11 @@ class DBManager(QMainWindow):
             self.show_table_data(table_name)
 
     def show_table_data(self, table_name):
+        """显示指定表的数据
+        
+        Args:
+            table_name: 表名
+        """
         if not self.conn:
             return
         try:
@@ -476,9 +696,13 @@ class DBManager(QMainWindow):
 
             self.tab_widget.setCurrentWidget(self.table_tab)
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"无法显示表数据: {str(e)}")
+            show_error("错误", f"无法显示表数据: {str(e)}", self)
 
     def load_more_table_data(self):
+        """加载更多表数据
+        
+        使用分页加载避免一次性加载大量数据
+        """
         if not self.current_table or not self.conn or self.table_loaded_rows >= self.table_total_rows:
             return
         self.table_load_more_btn.setEnabled(False)
@@ -498,16 +722,25 @@ class DBManager(QMainWindow):
                 self.table_load_more_btn.setEnabled(True)
                 self.table_load_more_btn.setText('加载更多')
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"加载更多数据失败: {str(e)}")
+            show_error("错误", f"加载更多数据失败: {str(e)}", self)
             self.table_load_more_btn.setEnabled(True)
             self.table_load_more_btn.setText('加载更多')
 
     def refresh_current_table(self):
+        """刷新当前表的数据
+        
+        重新加载当前表的所有数据
+        """
         if self.current_table:
             self.show_table_data(self.current_table)
             self.status_bar.showMessage(f'已刷新表: {self.current_table}', 3000)
 
     def show_tree_context_menu(self, position):
+        """显示树形节点的右键菜单
+        
+        Args:
+            position: 鼠标点击位置
+        """
         item = self.db_tree.itemAt(position)
         if not item:
             return
@@ -519,9 +752,66 @@ class DBManager(QMainWindow):
             menu.addAction(refresh_action)
         menu.exec(self.db_tree.mapToGlobal(position))
 
+    def on_sql_example_selected(self, index):
+        """处理SQL示例选择事件
+        
+        Args:
+            index: 选择的索引
+        """
+        if index <= 0:  # 第一个是提示文本
+            return
+            
+        examples = [
+            "",  # 空字符串对应提示文本
+            "SELECT * FROM table_name",
+            "SELECT column1, column2 FROM table_name",
+            "SELECT * FROM table_name WHERE condition",
+            "SELECT * FROM table_name ORDER BY column",
+            "SELECT COUNT(*) FROM table_name",
+            "SELECT DISTINCT column FROM table_name",
+            "SELECT column FROM table_name LIMIT 10"
+        ]
+        
+        if index < len(examples):
+            self.sql_editor.setText(examples[index])
+    
+    def format_sql(self):
+        """格式化SQL查询语句
+        
+        简单的SQL格式化功能
+        """
+        sql = self.sql_editor.toPlainText().strip()
+        if not sql:
+            QMessageBox.warning(self, "警告", "请输入SQL查询语句")
+            return
+            
+        # 简单的SQL格式化
+        formatted_sql = sql
+        
+        # 关键字大写
+        keywords = ["SELECT", "FROM", "WHERE", "AND", "OR", "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "INSERT INTO", "VALUES", "UPDATE", "SET", "DELETE FROM", "CREATE TABLE", "ALTER TABLE", "DROP TABLE", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "FULL OUTER JOIN", "UNION", "UNION ALL", "DISTINCT", "COUNT", "SUM", "AVG", "MIN", "MAX"]
+        for keyword in keywords:
+            formatted_sql = formatted_sql.replace(keyword, keyword.upper())
+        
+        # 添加换行和缩进
+        formatted_sql = formatted_sql.replace("SELECT\n", "SELECT\n    ")  # SELECT后缩进
+        formatted_sql = formatted_sql.replace("FROM\n", "\nFROM\n    ")  # FROM后缩进
+        formatted_sql = formatted_sql.replace("WHERE\n", "\nWHERE\n    ")  # WHERE后缩进
+        formatted_sql = formatted_sql.replace("ORDER BY\n", "\nORDER BY\n    ")  # ORDER BY后缩进
+        
+        # 在逗号后换行
+        formatted_sql = formatted_sql.replace(", ", ",\n    ")
+        
+        self.sql_editor.setText(formatted_sql)
+        self.status_bar.showMessage("SQL已格式化", 3000)
+    
     def execute_sql(self):
+        """执行SQL查询语句
+        
+        支持SELECT查询,结果在下方表格中显示
+        """
         if not self.conn:
-            QMessageBox.warning(self, "警告", "请先打开数据库")
+            show_warning("警告", "请先打开数据库", self)
             return
         sql = self.sql_editor.toPlainText().strip()
         if not sql:
@@ -570,8 +860,64 @@ class DBManager(QMainWindow):
                 self.status_bar.showMessage(f'SQL执行成功，影响了 {cursor.rowcount} 行', 3000)
                 self.refresh_db_tree()
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"SQL执行错误: {str(e)}")
+            show_error("错误", f"SQL执行错误: {str(e)}", self)
 
+    def execute_sql_async(self, sql, callback=None):
+        """异步执行SQL查询
+        
+        Args:
+            sql: 要执行的SQL语句
+            callback: 可选的回调函数
+        """
+        if not self.conn:
+            return
+            
+        if self.active_queries >= MAX_CONCURRENT_QUERIES:
+            # 将查询加入队列
+            self.query_queue.append((sql, callback))
+            return
+            
+        def query_callback(rows, columns, total_rows, error=None):
+            """查询结果回调函数
+            
+            Args:
+                rows: 查询结果行
+                columns: 列名列表
+                total_rows: 总行数
+                error: 错误信息
+            """
+            self.active_queries -= 1
+            if callback:
+                callback(rows, columns, total_rows, error)
+            
+            # 处理队列中的下一个查询
+            if self.query_queue:
+                next_query = self.query_queue.pop(0)
+                self.execute_sql_async(next_query[0], next_query[1])
+        
+        # 创建并启动异步查询任务
+        query_task = QueryTask(self.conn, sql, query_callback)
+        self.thread_pool.start(query_task)
+        self.active_queries += 1
+    
+    def show_about(self):
+        """显示关于对话框
+        
+        显示应用程序版本和相关信息
+        """
+        about_text = f"""<h2>SQLite 数据库查看工具 v{VERSION}</h2>
+<p>{VERSION_DESCRIPTION}</p>
+
+<p><b>版本:</b> {VERSION}</p>
+<p><b>构建日期:</b> 2023-11-20</p>
+<p><b>作者:</b> SQLite Manager Team</p>
+
+<p>本程序是一个轻量级的SQLite数据库查看和管理工具，支持浏览数据库结构、查看表数据和执行SQL查询。</p>
+
+<p>© 2023 SQLite Manager Team. 保留所有权利。</p>"""
+        from custom_dialogs import show_info
+        show_info("关于 SQLite 数据库查看工具", about_text, self)
+    
     def load_more_sql_result(self):
         if not self.conn or self.sql_result_loaded >= self.sql_result_total:
             return
@@ -593,6 +939,6 @@ class DBManager(QMainWindow):
                 self.sql_load_more_btn.setEnabled(True)
                 self.sql_load_more_btn.setText('加载更多')
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"加载更多结果失败: {str(e)}")
+            show_error("错误", f"加载更多结果失败: {str(e)}", self)
             self.sql_load_more_btn.setEnabled(True)
             self.sql_load_more_btn.setText('加载更多')
