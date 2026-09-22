@@ -131,6 +131,17 @@ class VirtualTableWidget(QTableView):
         # 枚举全限定
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.load_more_signal = None  # 外部绑定加载更多回调
+        self.verticalScrollBar().valueChanged.connect(self._on_scroll)
+
+    def _on_scroll(self, value):
+        """滚动接近底部时自动触发加载更多
+
+        Args:
+            value: 当前滚动条位置
+        """
+        bar = self.verticalScrollBar()
+        if bar.maximum() > 0 and value >= bar.maximum() - 10:
+            self.load_more()
 
     def set_alternating(self, enabled):
         """设置是否启用交替行颜色

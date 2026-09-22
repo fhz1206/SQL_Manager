@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBo
 from PyQt6.QtGui import QIcon
 
 from config import ICON_PATH
+from db_manager import DatabaseConnection
 
 
 class QueryWizardDialog(QDialog):
@@ -25,6 +26,15 @@ class QueryWizardDialog(QDialog):
         self.conn = conn
         self.generated_sql = ''
         self.init_ui()
+
+    def _get_cursor(self):
+        """获取当前连接的游标
+
+        兼容 sqlite3 连接（cursor为方法）与 DatabaseConnection（cursor为属性）
+        """
+        if isinstance(self.conn, DatabaseConnection):
+            return self.conn.cursor
+        return self.conn.cursor()
 
     def init_ui(self):
         self.setWindowTitle('🔍 查询向导')
@@ -320,11 +330,16 @@ class QueryWizardDialog(QDialog):
         if not self.conn:
             return
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-            tables = cursor.fetchall()
-            for table in tables:
-                self.table_combo.addItem(table[0])
+            if isinstance(self.conn, DatabaseConnection):
+                tables = self.conn.get_tables()
+                for table in tables:
+                    self.table_combo.addItem(table)
+            else:
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+                tables = cursor.fetchall()
+                for table in tables:
+                    self.table_combo.addItem(table[0])
         except Exception:
             pass
 
@@ -355,7 +370,33 @@ class QueryWizardDialog(QDialog):
             return
 
         try:
-            cursor = self.conn.cursor()
+            if isinstance(self.conn, DatabaseConnection):
+                columns = self.conn.get_table_info(table_name)
+
+                col_widget = QWidget()
+                col_inner = QVBoxLayout()
+                col_inner.setSpacing(6)
+                col_widget.setLayout(col_inner)
+
+                self.column_checks = []
+                for col in columns:
+                    col_name = col[0]
+                    col_type = col[1]
+                    check = QCheckBox(f'{col_name} ({col_type})')
+                    check.setChecked(True)
+                    check.col_name = col_name
+                    check.stateChanged.connect(self._generate_sql)
+                    self.column_checks.append(check)
+                    col_inner.addWidget(check)
+
+                self.columns_layout.addWidget(col_widget)
+
+                for col in columns:
+                    self.filter_column_combo.addItem(col[0])
+                    self.filter_column_combo2.addItem(col[0])
+                return
+
+            cursor = self._get_cursor()
             cursor.execute(f"PRAGMA table_info('{table_name}')")
             columns = cursor.fetchall()
 
@@ -486,8 +527,12 @@ class QueryWizardDialog(QDialog):
                 value2 = self.filter_value_input2.text()
                 if op_idx2 in (9, 10) or value2:
                     cond2 = self._build_condition(filter_col2, op_idx2, value2)
-                    connector = 'AND' if self.and_radio.isChecked() else 'OR'
-                    conditions.append(f'{connector} {cond2}')
+                    if conditions:
+                        connector = ' AND ' if self.and_radio.isChecked() else ' OR '
+                        conditions.append(f'{connector}{cond2}')
+                    else:
+                        # 没有第一个条件时,第二个条件单独作为筛选条件
+                        conditions.append(cond2)
 
         if conditions:
             sql += f' WHERE {" ".join(conditions)}'

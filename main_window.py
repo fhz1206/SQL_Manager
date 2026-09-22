@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import sqlite3
 import time
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -18,7 +19,7 @@ from config import (ICON_PATH, CSS_PATH, TABLE_PAGE_SIZE, SQL_RESULT_PROMPT_THRE
 from components import SearchLineEdit, VirtualTableWidget
 from dialogs import QueryWizardDialog
 from custom_dialogs import show_error, show_warning
-from version import VERSION, VERSION_DESCRIPTION
+from version import VERSION, VERSION_DESCRIPTION, BUILD_DATE, AUTHOR
 from db_manager import DatabaseConnection
 from db_connect_dialog import DatabaseConnectDialog
 
@@ -37,7 +38,10 @@ class QueryTask(QRunnable):
         
     def run(self):
         try:
-            cursor = self.conn.cursor()
+            if isinstance(self.conn, DatabaseConnection):
+                cursor = self.conn.cursor
+            else:
+                cursor = self.conn.cursor()
             cursor.execute(self.sql)
             if self.sql.upper().lstrip().startswith('SELECT'):
                 rows = cursor.fetchall()
@@ -72,6 +76,7 @@ class DBManager(QMainWindow):
         self.table_columns = []
         self.sql_result_total = 0
         self.sql_result_loaded = 0
+        self.sql_result_sql = ''
         
         # 性能优化相关初始化
         self.thread_pool = QThreadPool.globalInstance()
@@ -79,6 +84,16 @@ class DBManager(QMainWindow):
         self.query_queue = []
         
         self.init_ui()
+
+    def _get_cursor(self):
+        """获取当前连接的游标
+
+        兼容 sqlite3 连接（cursor为方法）与 DatabaseConnection（cursor为属性），
+        修复连接网络数据库后 cursor() 被错误调用导致的 TypeError
+        """
+        if isinstance(self.conn, DatabaseConnection):
+            return self.conn.cursor
+        return self.conn.cursor()
 
     def init_ui(self):
         """初始化用户界面
@@ -406,16 +421,23 @@ class DBManager(QMainWindow):
                 return
             table_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
             try:
-                cursor = self.conn.cursor()
-                cursor.execute(f"PRAGMA table_info('{table_name}')")
-                columns = cursor.fetchall()
-                for col in columns:
-                    col_name = col[1]
-                    col_type = col[2]
-                    is_pk = '🔑 ' if col[5] else ''
-                    col_item = QTreeWidgetItem(item)
-                    col_item.setText(0, f'{is_pk}{col_name} ({col_type})')
-                    col_item.setData(0, Qt.ItemDataRole.UserRole, 'column')
+                if isinstance(self.conn, DatabaseConnection):
+                    columns = self.conn.get_table_info(table_name)
+                    for col in columns:
+                        col_item = QTreeWidgetItem(item)
+                        col_item.setText(0, f'{col[0]} ({col[1]})')
+                        col_item.setData(0, Qt.ItemDataRole.UserRole, 'column')
+                else:
+                    cursor = self._get_cursor()
+                    cursor.execute(f"PRAGMA table_info('{table_name}')")
+                    columns = cursor.fetchall()
+                    for col in columns:
+                        col_name = col[1]
+                        col_type = col[2]
+                        is_pk = '🔑 ' if col[5] else ''
+                        col_item = QTreeWidgetItem(item)
+                        col_item.setText(0, f'{is_pk}{col_name} ({col_type})')
+                        col_item.setData(0, Qt.ItemDataRole.UserRole, 'column')
                 item.setData(0, Qt.ItemDataRole.UserRole + 2, 'columns_loaded')
             except Exception:
                 pass
@@ -517,6 +539,7 @@ class DBManager(QMainWindow):
             self.table_loaded_rows = 0
             self.sql_result_total = 0
             self.sql_result_loaded = 0
+            self.sql_result_sql = ''
             self.refresh_db_tree()
             self.table_widget.model.set_data([], [], 0)
             self.result_table.model.set_data([], [], 0)
@@ -557,6 +580,7 @@ class DBManager(QMainWindow):
                     table_item.setText(0, f'📋 {table_name}')
                     table_item.setData(0, Qt.ItemDataRole.UserRole, 'table')
                     table_item.setData(0, Qt.ItemDataRole.UserRole + 1, table_name)
+                    table_item.setData(0, Qt.ItemDataRole.UserRole + 2, 'columns_not_loaded')
             else:
                 # 使用原有方法处理SQLite数据库
                 cursor = self.conn.cursor()
@@ -667,11 +691,15 @@ class DBManager(QMainWindow):
             return
         try:
             self.current_table = table_name
-            cursor = self.conn.cursor()
+            cursor = self._get_cursor()
 
-            cursor.execute(f"PRAGMA table_info('{table_name}')")
-            columns = cursor.fetchall()
-            self.table_columns = [col[1] for col in columns]
+            if isinstance(self.conn, DatabaseConnection):
+                columns = self.conn.get_table_info(table_name)
+                self.table_columns = [col[0] for col in columns]
+            else:
+                cursor.execute(f"PRAGMA table_info('{table_name}')")
+                columns = cursor.fetchall()
+                self.table_columns = [col[1] for col in columns]
 
             cursor.execute(f"SELECT COUNT(*) FROM '{table_name}'")
             self.table_total_rows = cursor.fetchone()[0]
@@ -708,7 +736,7 @@ class DBManager(QMainWindow):
         self.table_load_more_btn.setEnabled(False)
         self.table_load_more_btn.setText('加载中...')
         try:
-            cursor = self.conn.cursor()
+            cursor = self._get_cursor()
             offset = self.table_loaded_rows
             cursor.execute(f"SELECT * FROM '{self.current_table}' LIMIT {TABLE_PAGE_SIZE} OFFSET {offset}")
             new_rows = cursor.fetchall()
@@ -773,36 +801,52 @@ class DBManager(QMainWindow):
         ]
         
         if index < len(examples):
-            self.sql_editor.setText(examples[index])
+            self.sql_editor.setPlainText(examples[index])
     
     def format_sql(self):
         """格式化SQL查询语句
-        
-        简单的SQL格式化功能
+
+        基于正则的SQL格式化:
+        - 关键字大写(大小写不敏感,且不破坏字符串字面量与标识符)
+        - 主要子句换行缩进,提升可读性
         """
         sql = self.sql_editor.toPlainText().strip()
         if not sql:
             QMessageBox.warning(self, "警告", "请输入SQL查询语句")
             return
-            
-        # 简单的SQL格式化
-        formatted_sql = sql
-        
-        # 关键字大写
-        keywords = ["SELECT", "FROM", "WHERE", "AND", "OR", "ORDER BY", "GROUP BY", "HAVING", "LIMIT", "INSERT INTO", "VALUES", "UPDATE", "SET", "DELETE FROM", "CREATE TABLE", "ALTER TABLE", "DROP TABLE", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "FULL OUTER JOIN", "UNION", "UNION ALL", "DISTINCT", "COUNT", "SUM", "AVG", "MIN", "MAX"]
+
+        # 保护字符串字面量,避免格式化破坏其内容
+        strings = []
+
+        def _protect(match):
+            strings.append(match.group(0))
+            return f'__SQLSTR_{len(strings) - 1}__'
+
+        protected = re.sub(r"'(?:[^']|'')*'", _protect, sql)
+
+        # 关键字大写(使用单词边界,大小写不敏感)
+        keywords = ["SELECT", "FROM", "WHERE", "AND", "OR", "ORDER BY", "GROUP BY",
+                    "HAVING", "LIMIT", "INSERT INTO", "VALUES", "UPDATE", "SET",
+                    "DELETE FROM", "CREATE TABLE", "ALTER TABLE", "DROP TABLE",
+                    "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "FULL OUTER JOIN",
+                    "JOIN", "UNION ALL", "UNION", "DISTINCT", "ON", "AS", "ASC", "DESC"]
         for keyword in keywords:
-            formatted_sql = formatted_sql.replace(keyword, keyword.upper())
-        
-        # 添加换行和缩进
-        formatted_sql = formatted_sql.replace("SELECT\n", "SELECT\n    ")  # SELECT后缩进
-        formatted_sql = formatted_sql.replace("FROM\n", "\nFROM\n    ")  # FROM后缩进
-        formatted_sql = formatted_sql.replace("WHERE\n", "\nWHERE\n    ")  # WHERE后缩进
-        formatted_sql = formatted_sql.replace("ORDER BY\n", "\nORDER BY\n    ")  # ORDER BY后缩进
-        
-        # 在逗号后换行
-        formatted_sql = formatted_sql.replace(", ", ",\n    ")
-        
-        self.sql_editor.setText(formatted_sql)
+            pattern = re.compile(re.escape(keyword).replace(r'\ ', r'\s+'), re.IGNORECASE)
+            protected = pattern.sub(keyword.upper(), protected)
+
+        # 主要子句前换行
+        protected = re.sub(r'\bFROM\b', '\nFROM', protected)
+        protected = re.sub(r'\bWHERE\b', '\nWHERE', protected)
+        protected = re.sub(r'\b(ORDER BY|GROUP BY|HAVING)\b', r'\n\1', protected)
+        protected = re.sub(r'\b(LIMIT|OFFSET)\b', r'\n\1', protected)
+        protected = protected.replace(',', ',\n    ')
+
+        # 还原字符串字面量
+        formatted_sql = protected
+        for i, value in enumerate(strings):
+            formatted_sql = formatted_sql.replace(f'__SQLSTR_{i}__', value)
+
+        self.sql_editor.setPlainText(formatted_sql)
         self.status_bar.showMessage("SQL已格式化", 3000)
     
     def execute_sql(self):
@@ -810,22 +854,21 @@ class DBManager(QMainWindow):
         
         支持SELECT查询,结果在下方表格中显示
         """
-        if not self.conn:
-            show_warning("警告", "请先打开数据库", self)
-            return
         sql = self.sql_editor.toPlainText().strip()
         if not sql:
             QMessageBox.warning(self, "警告", "请输入SQL查询语句")
             return
         try:
-            cursor = self.conn.cursor()
+            cursor = self._get_cursor()
             cursor.execute(sql)
-            if sql.upper().lstrip().startswith('SELECT'):
+            first_word = sql.split(None, 1)[0].upper() if sql.split() else ''
+            if first_word in ('SELECT', 'WITH', 'PRAGMA', 'EXPLAIN', 'VALUES'):
                 rows = cursor.fetchall()
                 columns = [description[0] for description in cursor.description]
                 total_rows = len(rows)
                 self.sql_result_total = total_rows
                 self.sql_result_loaded = 0
+                self.sql_result_sql = sql
 
                 if total_rows > SQL_RESULT_PROMPT_THRESHOLD:
                     reply = QMessageBox.question(
@@ -836,7 +879,6 @@ class DBManager(QMainWindow):
                     )
                     if reply == QMessageBox.StandardButton.Yes:
                         rows = rows[:TABLE_PAGE_SIZE]
-                        total_rows = TABLE_PAGE_SIZE
                         has_more = True
                     else:
                         has_more = False
@@ -909,12 +951,12 @@ class DBManager(QMainWindow):
 <p>{VERSION_DESCRIPTION}</p>
 
 <p><b>版本:</b> {VERSION}</p>
-<p><b>构建日期:</b> 2023-11-20</p>
-<p><b>作者:</b> SQLite Manager Team</p>
+<p><b>构建日期:</b> {BUILD_DATE}</p>
+<p><b>作者:</b> {AUTHOR}</p>
 
 <p>本程序是一个轻量级的SQLite数据库查看和管理工具，支持浏览数据库结构、查看表数据和执行SQL查询。</p>
 
-<p>© 2023 SQLite Manager Team. 保留所有权利。</p>"""
+<p>© 2023-2026 {AUTHOR}. 保留所有权利。</p>"""
         from custom_dialogs import show_info
         show_info("关于 SQLite 数据库查看工具", about_text, self)
     
@@ -924,8 +966,8 @@ class DBManager(QMainWindow):
         self.sql_load_more_btn.setEnabled(False)
         self.sql_load_more_btn.setText('加载中...')
         try:
-            cursor = self.conn.cursor()
-            sql = self.sql_editor.toPlainText().strip()
+            cursor = self._get_cursor()
+            sql = getattr(self, 'sql_result_sql', '') or self.sql_editor.toPlainText().strip()
             offset = self.sql_result_loaded
             cursor.execute(f"{sql} LIMIT {TABLE_PAGE_SIZE} OFFSET {offset}")
             new_rows = cursor.fetchall()
