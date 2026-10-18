@@ -228,8 +228,9 @@ class DBManager(QMainWindow):
         search_frame = QFrame()
         search_frame.setStyleSheet("""
             QFrame {
-                background-color: #f8f9fa;
-                border-radius: 8px;
+                background-color: rgba(255, 255, 255, 0.45);
+                border: 1px solid rgba(255, 255, 255, 0.65);
+                border-radius: 12px;
                 padding: 4px;
             }
         """)
@@ -303,9 +304,9 @@ class DBManager(QMainWindow):
         sql_examples.setMinimumWidth(180)
         sql_examples.setStyleSheet("""
             QComboBox {
-                background-color: #f8f9fa;
-                border: 1px solid #dcdde1;
-                border-radius: 6px;
+                background-color: rgba(255, 255, 255, 0.60);
+                border: 1px solid rgba(255, 255, 255, 0.70);
+                border-radius: 12px;
                 padding: 6px 10px;
                 font-size: 12px;
                 color: #2c3e50;
@@ -325,20 +326,20 @@ class DBManager(QMainWindow):
         query_wizard_btn.setObjectName('wizardButton')
         query_wizard_btn.setStyleSheet('''
             QPushButton#wizardButton {
-                background-color: #8e44ad;
+                background-color: rgba(142, 68, 173, 0.85);
                 color: #ffffff;
-                border: none;
-                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                border-radius: 14px;
                 padding: 6px 16px;
                 font-size: 12px;
                 font-weight: bold;
                 min-width: 90px;
             }
             QPushButton#wizardButton:hover {
-                background-color: #7d3c98;
+                background-color: rgba(125, 60, 152, 0.95);
             }
             QPushButton#wizardButton:pressed {
-                background-color: #6c3483;
+                background-color: rgba(108, 52, 131, 0.95);
             }
         ''')
         query_wizard_btn.clicked.connect(self.open_query_wizard)
@@ -350,20 +351,20 @@ class DBManager(QMainWindow):
         format_btn.setMinimumWidth(80)
         format_btn.setStyleSheet("""
             QPushButton#formatButton {
-                background-color: #16a085;
+                background-color: rgba(22, 160, 133, 0.85);
                 color: white;
-                border: none;
-                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                border-radius: 14px;
                 padding: 6px 12px;
                 font-size: 12px;
                 font-weight: bold;
                 min-width: 80px;
             }
             QPushButton#formatButton:hover {
-                background-color: #138d75;
+                background-color: rgba(22, 160, 133, 0.95);
             }
             QPushButton#formatButton:pressed {
-                background-color: #0e6655;
+                background-color: rgba(11, 121, 100, 0.95);
             }
         """)
         format_btn.clicked.connect(self.format_sql)
