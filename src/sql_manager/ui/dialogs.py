@@ -1,0 +1,476 @@
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
+                             QPushButton, QCheckBox, QGroupBox, QScrollArea, QWidget,
+                             QLineEdit, QTextEdit, QMessageBox)  # 补全漏导入的控件
+from PyQt6.QtGui import QIcon
+
+from ..core.config import ICON_PATH
+from ..core.db_manager import DatabaseConnection
+
+
+class QueryWizardDialog(QDialog):
+    """查询向导弹窗
+    
+    提供可视化界面帮助用户构建SQL查询语句,包括:
+    - 选择要查询的表
+    - 选择要查询的列
+    - 设置筛选条件(支持AND/OR逻辑)
+    - 实时预览生成的SQL
+    - 生成并执行查询
+    
+    属性:
+        conn: 数据库连接对象
+        generated_sql: 生成的SQL语句
+    """
+    def __init__(self, conn, parent=None):
+        super().__init__(parent)
+        self.setObjectName('QueryWizardDialog')
+        self.conn = conn
+        self.generated_sql = ''
+        self.init_ui()
+
+    def _get_cursor(self):
+        """获取当前连接的游标
+
+        兼容 sqlite3 连接（cursor为方法）与 DatabaseConnection（cursor为属性）
+        """
+        if isinstance(self.conn, DatabaseConnection):
+            return self.conn.cursor
+        return self.conn.cursor()
+
+    def init_ui(self):
+        self.setWindowTitle('🔍 查询向导')
+        self.setWindowIcon(QIcon(ICON_PATH))
+        self.setMinimumSize(600, 700)
+
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        self.setLayout(main_layout)
+
+        # 标题
+        title_label = QLabel('🔍 查询向导')
+        title_label.setObjectName('wizardTitle')
+        main_layout.addWidget(title_label)
+
+        desc_label = QLabel('选择表、列和条件，自动生成 SQL 查询语句')
+        desc_label.setObjectName('wizardDesc')
+        main_layout.addWidget(desc_label)
+
+        # ===== 步骤1: 选择表 =====
+        step1_group = QGroupBox('选择表')
+        step1_layout = QHBoxLayout()
+        step1_layout.setContentsMargins(10, 6, 10, 6)
+        step1_group.setLayout(step1_layout)
+
+        self.table_combo = QComboBox()
+        self.table_combo.setMinimumHeight(34)
+        self._load_tables()
+        self.table_combo.currentTextChanged.connect(self._on_table_changed)
+        step1_layout.addWidget(self.table_combo)
+
+        main_layout.addWidget(step1_group)
+
+        # ===== 步骤2: 选择列 =====
+        step2_group = QGroupBox('选择列')
+        step2_layout = QVBoxLayout()
+        step2_layout.setContentsMargins(10, 6, 10, 6)
+        step2_group.setLayout(step2_layout)
+
+        # 全选/取消全选
+        select_all_layout = QHBoxLayout()
+        select_all_layout.setSpacing(8)
+        select_all_btn = QPushButton('全选')
+        select_all_btn.setFixedSize(70, 32)
+        select_all_btn.clicked.connect(self._select_all_columns)
+        deselect_all_btn = QPushButton('取消全选')
+        deselect_all_btn.setFixedSize(80, 32)
+        deselect_all_btn.clicked.connect(self._deselect_all_columns)
+        select_all_layout.addWidget(select_all_btn)
+        select_all_layout.addWidget(deselect_all_btn)
+        select_all_layout.addStretch()
+        step2_layout.addLayout(select_all_layout)
+
+        # 列选择区域（使用滚动区域）
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setMinimumHeight(100)
+        scroll_area.setMaximumHeight(140)
+        scroll_area.setObjectName('columnsScrollArea')
+
+        self.columns_widget = QWidget()
+        self.columns_layout = QVBoxLayout()
+        self.columns_layout.setSpacing(8)
+        self.columns_widget.setLayout(self.columns_layout)
+        scroll_area.setWidget(self.columns_widget)
+        step2_layout.addWidget(scroll_area)
+
+        main_layout.addWidget(step2_group)
+
+        # ===== 步骤3: 设置筛选条件 =====
+        step3_group = QGroupBox('筛选条件（可选）')
+        step3_layout = QVBoxLayout()
+        step3_layout.setContentsMargins(10, 6, 10, 6)
+        step3_layout.setSpacing(6)
+        step3_group.setLayout(step3_layout)
+
+        # 筛选条件行
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(8)
+
+        filter_row.addWidget(QLabel('列:'))
+        self.filter_column_combo = QComboBox()
+        self.filter_column_combo.setMinimumWidth(110)
+        self.filter_column_combo.setMaximumWidth(130)
+        self.filter_column_combo.setMinimumHeight(30)
+        filter_row.addWidget(self.filter_column_combo)
+
+        filter_row.addWidget(QLabel('条件:'))
+        self.filter_op_combo = QComboBox()
+        self.filter_op_combo.addItems([
+            '等于 (=)', '不等于 (!=)', '大于 (>)', '大于等于 (>=)', 
+            '小于 (<)', '小于等于 (<=)', '包含 (LIKE)', '以...开头', 
+            '以...结尾', '为空 (IS NULL)', '不为空 (IS NOT NULL)',
+        ])
+        self.filter_op_combo.setMinimumWidth(130)
+        self.filter_op_combo.setMaximumWidth(150)
+        self.filter_op_combo.setMinimumHeight(30)
+        self.filter_op_combo.currentIndexChanged.connect(self._on_operator_changed)
+        filter_row.addWidget(self.filter_op_combo)
+
+        filter_row.addWidget(QLabel('值:'))
+        self.filter_value_input = QLineEdit()
+        self.filter_value_input.setPlaceholderText('输入筛选值...')
+        self.filter_value_input.setMinimumWidth(120)
+        self.filter_value_input.setMaximumWidth(140)
+        self.filter_value_input.setMinimumHeight(30)
+        filter_row.addWidget(self.filter_value_input)
+
+        step3_layout.addLayout(filter_row)
+
+        # 第二个筛选条件
+        filter_row2 = QHBoxLayout()
+        filter_row2.setSpacing(8)
+
+        self.and_radio = QCheckBox('并且 (AND)')
+        self.or_radio = QCheckBox('或者 (OR)')
+        self.and_radio.stateChanged.connect(lambda: self.or_radio.setChecked(False) if self.and_radio.isChecked() else None)
+        self.or_radio.stateChanged.connect(lambda: self.and_radio.setChecked(False) if self.or_radio.isChecked() else None)
+        filter_row2.addWidget(self.and_radio)
+        filter_row2.addWidget(self.or_radio)
+        filter_row2.addStretch()
+
+        step3_layout.addLayout(filter_row2)
+
+        # 第二行条件
+        filter_row3 = QHBoxLayout()
+        filter_row3.setSpacing(8)
+
+        filter_row3.addWidget(QLabel('列:'))
+        self.filter_column_combo2 = QComboBox()
+        self.filter_column_combo2.setMinimumWidth(110)
+        self.filter_column_combo2.setMaximumWidth(130)
+        self.filter_column_combo2.setMinimumHeight(30)
+        filter_row3.addWidget(self.filter_column_combo2)
+
+        filter_row3.addWidget(QLabel('条件:'))
+        self.filter_op_combo2 = QComboBox()
+        self.filter_op_combo2.addItems([
+            '等于 (=)', '不等于 (!=)', '大于 (>)', '大于等于 (>=)', 
+            '小于 (<)', '小于等于 (<=)', '包含 (LIKE)', '以...开头', 
+            '以...结尾', '为空 (IS NULL)', '不为空 (IS NOT NULL)',
+        ])
+        self.filter_op_combo2.setMinimumWidth(130)
+        self.filter_op_combo2.setMaximumWidth(150)
+        self.filter_op_combo2.setMinimumHeight(30)
+        self.filter_op_combo2.currentIndexChanged.connect(self._on_operator_changed2)
+        filter_row3.addWidget(self.filter_op_combo2)
+
+        filter_row3.addWidget(QLabel('值:'))
+        self.filter_value_input2 = QLineEdit()
+        self.filter_value_input2.setPlaceholderText('输入筛选值...')
+        self.filter_value_input2.setMinimumWidth(120)
+        self.filter_value_input2.setMaximumWidth(140)
+        self.filter_value_input2.setMinimumHeight(30)
+        filter_row3.addWidget(self.filter_value_input2)
+
+        step3_layout.addLayout(filter_row3)
+
+        main_layout.addWidget(step3_group)
+
+        # ===== 预览SQL =====
+        preview_group = QGroupBox('SQL 预览')
+        preview_layout = QVBoxLayout()
+        preview_layout.setContentsMargins(8, 4, 8, 4)
+        preview_group.setLayout(preview_layout)
+
+        self.sql_preview = QTextEdit()
+        self.sql_preview.setReadOnly(True)
+        self.sql_preview.setObjectName('sqlPreview')
+        self.sql_preview.setMinimumHeight(30)
+        self.sql_preview.setMaximumHeight(50)
+        preview_layout.addWidget(self.sql_preview)
+
+        main_layout.addWidget(preview_group)
+
+        # ===== 按钮 =====
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(6)
+
+        preview_btn = QPushButton('👁 预览SQL')
+        preview_btn.setMinimumHeight(28)
+        preview_btn.setMaximumWidth(70)
+        preview_btn.clicked.connect(self._generate_sql)
+        btn_layout.addWidget(preview_btn)
+
+        btn_layout.addStretch()
+
+        cancel_btn = QPushButton('取消')
+        cancel_btn.setMinimumHeight(28)
+        cancel_btn.setMaximumWidth(60)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        # 生成并执行按钮
+        execute_btn = QPushButton('▶ 生成并执行')
+        execute_btn.setObjectName('successButton')
+        execute_btn.setMinimumHeight(28)
+        execute_btn.setMaximumWidth(70)
+        execute_btn.clicked.connect(self._execute_query)
+        btn_layout.addWidget(execute_btn)
+
+        main_layout.addLayout(btn_layout)
+
+        # 初始化列信息
+        self._on_table_changed(self.table_combo.currentText())
+
+    def _load_tables(self):
+        """加载所有表名到下拉框"""
+        self.table_combo.clear()
+        if not self.conn:
+            return
+        try:
+            if isinstance(self.conn, DatabaseConnection):
+                tables = self.conn.get_tables()
+                for table in tables:
+                    self.table_combo.addItem(table)
+            else:
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+                tables = cursor.fetchall()
+                for table in tables:
+                    self.table_combo.addItem(table[0])
+        except Exception:
+            pass
+
+    def _on_table_changed(self, table_name):
+        """当选择的表变化时，更新列信息
+        
+        Args:
+            table_name: 新选择的表名
+        """
+        self._load_columns(table_name)
+        self._generate_sql()
+
+    def _load_columns(self, table_name):
+        """加载指定表的列信息
+        
+        Args:
+            table_name: 表名
+        """
+        while self.columns_layout.count():
+            item = self.columns_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.filter_column_combo.clear()
+        self.filter_column_combo2.clear()
+
+        if not self.conn or not table_name:
+            return
+
+        try:
+            if isinstance(self.conn, DatabaseConnection):
+                columns = self.conn.get_table_info(table_name)
+
+                col_widget = QWidget()
+                col_inner = QVBoxLayout()
+                col_inner.setSpacing(6)
+                col_widget.setLayout(col_inner)
+
+                self.column_checks = []
+                for col in columns:
+                    col_name = col[0]
+                    col_type = col[1]
+                    check = QCheckBox(f'{col_name} ({col_type})')
+                    check.setChecked(True)
+                    check.col_name = col_name
+                    check.stateChanged.connect(self._generate_sql)
+                    self.column_checks.append(check)
+                    col_inner.addWidget(check)
+
+                self.columns_layout.addWidget(col_widget)
+
+                for col in columns:
+                    self.filter_column_combo.addItem(col[0])
+                    self.filter_column_combo2.addItem(col[0])
+                return
+
+            cursor = self._get_cursor()
+            cursor.execute(f"PRAGMA table_info('{table_name}')")
+            columns = cursor.fetchall()
+
+            col_widget = QWidget()
+            col_inner = QVBoxLayout()
+            col_inner.setSpacing(6)
+            col_widget.setLayout(col_inner)
+
+            self.column_checks = []
+            for col in columns:
+                col_name = col[1]
+                col_type = col[2]
+                is_pk = '🔑 ' if col[5] else ''
+                check = QCheckBox(f'{is_pk}{col_name} ({col_type})')
+                check.setChecked(True)
+                check.col_name = col_name
+                check.stateChanged.connect(self._generate_sql)
+                self.column_checks.append(check)
+                col_inner.addWidget(check)
+
+            self.columns_layout.addWidget(col_widget)
+
+            for col in columns:
+                self.filter_column_combo.addItem(col[1])
+                self.filter_column_combo2.addItem(col[1])
+
+        except Exception:
+            pass
+
+    def _select_all_columns(self):
+        """选中所有列"""
+        for check in self.column_checks:
+            check.setChecked(True)
+
+    def _deselect_all_columns(self):
+        """取消选中所有列"""
+        for check in self.column_checks:
+            check.setChecked(False)
+
+    def _on_operator_changed(self, idx):
+        """当操作符变化时，控制值输入框的启用状态
+        
+        Args:
+            idx: 操作符索引
+        """
+        is_null_op = idx in (9, 10)
+        self.filter_value_input.setEnabled(not is_null_op)
+        if is_null_op:
+            self.filter_value_input.clear()
+            self.filter_value_input.setPlaceholderText('此条件无需输入值')
+        else:
+            self.filter_value_input.setPlaceholderText('输入筛选值...')
+
+    def _on_operator_changed2(self, idx):
+        """当第二个操作符变化时
+        
+        Args:
+            idx: 操作符索引
+        """
+        is_null_op = idx in (9, 10)
+        self.filter_value_input2.setEnabled(not is_null_op)
+        if is_null_op:
+            self.filter_value_input2.clear()
+            self.filter_value_input2.setPlaceholderText('此条件无需输入值')
+        else:
+            self.filter_value_input2.setPlaceholderText('输入筛选值...')
+
+    def _build_condition(self, column, op_idx, value):
+        """构建单个筛选条件
+        
+        Args:
+            column: 列名
+            op_idx: 操作符索引
+            value: 筛选值
+            
+        Returns:
+            str: SQL条件语句
+        """
+        ops = ['=', '!=', '>', '>=', '<', '<=', 'LIKE', 'LIKE', 'LIKE', 'IS NULL', 'IS NOT NULL']
+        op = ops[op_idx] if op_idx < len(ops) else '='
+        # 转义值中的单引号，避免破坏SQL语句
+        safe_value = value.replace("'", "''")
+
+        if op == 'IS NULL':
+            return f'"{column}" IS NULL'
+        elif op == 'IS NOT NULL':
+            return f'"{column}" IS NOT NULL'
+        elif op == 'LIKE' and op_idx == 7:
+            return f'"{column}" LIKE \'{safe_value}%\''
+        elif op == 'LIKE' and op_idx == 8:
+            return f'"{column}" LIKE \'%{safe_value}\''
+        elif op == 'LIKE':
+            return f'"{column}" LIKE \'%{safe_value}%\''
+        else:
+            return f'"{column}" {op} \'{safe_value}\''
+
+    def _generate_sql(self):
+        """生成SQL查询语句
+        
+        Returns:
+            str: 生成的SQL语句
+        """
+        table_name = self.table_combo.currentText()
+        if not table_name:
+            self.sql_preview.setPlainText('')
+            return ''
+
+        selected_cols = []
+        for check in getattr(self, 'column_checks', []):
+            if check.isChecked():
+                selected_cols.append(f'"{check.col_name}"')
+
+        if not selected_cols:
+            selected_cols = ['*']
+
+        sql = f'SELECT {", ".join(selected_cols)} FROM "{table_name}"'
+
+        conditions = []
+        filter_col = self.filter_column_combo.currentText()
+        if filter_col:
+            op_idx = self.filter_op_combo.currentIndex()
+            value = self.filter_value_input.text()
+            if op_idx in (9, 10) or value:
+                conditions.append(self._build_condition(filter_col, op_idx, value))
+
+        if self.and_radio.isChecked() or self.or_radio.isChecked():
+            filter_col2 = self.filter_column_combo2.currentText()
+            if filter_col2:
+                op_idx2 = self.filter_op_combo2.currentIndex()
+                value2 = self.filter_value_input2.text()
+                if op_idx2 in (9, 10) or value2:
+                    cond2 = self._build_condition(filter_col2, op_idx2, value2)
+                    if conditions:
+                        connector = ' AND ' if self.and_radio.isChecked() else ' OR '
+                        conditions.append(f'{connector}{cond2}')
+                    else:
+                        # 没有第一个条件时,第二个条件单独作为筛选条件
+                        conditions.append(cond2)
+
+        if conditions:
+            sql += f' WHERE {" ".join(conditions)}'
+
+        self.sql_preview.setPlainText(sql)
+        self.generated_sql = sql
+        return sql
+
+    def _execute_query(self):
+        """生成并执行查询
+        
+        生成SQL并关闭对话框,由主窗口执行查询
+        """
+        sql = self._generate_sql()
+        if not sql:
+            from custom_dialogs import show_warning
+            show_warning('警告', '请先选择表和列', self)
+            return
+        self.generated_sql = sql
+        self.accept()

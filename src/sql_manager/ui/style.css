@@ -1,6 +1,22 @@
-/* ==================== 液态玻璃 (Liquid Glass) 主题 ==================== */
-/* Qt 不支持背景模糊(blur)，通过半透明填充 + 细描边高光 + 大圆角模拟玻璃质感 */
+/* =====================================================================
+   SQL_Manager 统一主题样式表
+   颜色系统（统一，所有弹窗/内联样式必须复用以下值，不得再自行硬编码）：
+   - 主色           #0984e3  (蓝色)
+   - 主色悬停       #0773c7
+   - 主色按下       #0566b3
+   - 成功色         #00b894  (青绿)
+   - 成功色悬停     #00a384
+   - 危险色         #e74c3c  (红色)
+   - 危险色悬停     #c0392b
+   - 背景渐变       #dfe9f3 -> #f3e7ee
+   - 表面色         rgba(255,255,255,0.50~0.92)
+   - 文字主色       #2c3e50
+   - 文字次色       #636e72
+   - 文字反色       #ffffff
+   - 边框色         rgba(255,255,255,0.65)
+   ===================================================================== */
 
+/* ---------- 基础窗口 ---------- */
 QMainWindow {
     background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
         stop:0 #dfe9f3, stop:0.5 #e8ebf5, stop:1 #f3e7ee);
@@ -10,7 +26,7 @@ QDialog {
         stop:0 #dfe9f3, stop:1 #f3e7ee);
 }
 
-/* ==================== 工具栏与状态栏：深色玻璃 ==================== */
+/* ---------- 工具栏与状态栏：深色玻璃 ---------- */
 QToolBar {
     background-color: rgba(30, 39, 46, 0.85);
     border: none;
@@ -29,7 +45,7 @@ QSplitter::handle {
     width: 2px;
 }
 
-/* ==================== 工具栏按钮：玻璃药丸 ==================== */
+/* ---------- 工具栏按钮：玻璃药丸 ---------- */
 QToolBar QToolButton {
     background-color: rgba(255, 255, 255, 0.10);
     color: #ecf0f1;
@@ -61,7 +77,7 @@ QToolBar QToolButton#dangerAction:hover {
     color: #ffffff;
 }
 
-/* ==================== 树组件：浅色玻璃面板 ==================== */
+/* ---------- 树组件：浅色玻璃面板 ---------- */
 QTreeWidget {
     background-color: rgba(255, 255, 255, 0.55);
     border: 1px solid rgba(255, 255, 255, 0.65);
@@ -85,7 +101,7 @@ QTreeWidget::branch {
     background-color: transparent;
 }
 
-/* ==================== 选项卡：玻璃片 ==================== */
+/* ---------- 选项卡：玻璃片 ---------- */
 QTabWidget::pane {
     border: 1px solid rgba(255, 255, 255, 0.65);
     border-radius: 12px;
@@ -114,7 +130,7 @@ QTabBar::tab:hover:!selected {
     background-color: rgba(255, 255, 255, 0.55);
 }
 
-/* ==================== 表格：玻璃网格 ==================== */
+/* ---------- 表格：玻璃网格 ---------- */
 QTableView {
     background-color: rgba(255, 255, 255, 0.55);
     alternate-background-color: rgba(255, 255, 255, 0.30);
@@ -147,7 +163,7 @@ QHeaderView::section {
     font-size: 12px;
 }
 
-/* ==================== SQL 编辑器：深色玻璃 ==================== */
+/* ---------- SQL 编辑器：深色玻璃 ---------- */
 QTextEdit {
     background-color: rgba(30, 39, 46, 0.85);
     color: #dfe6e9;
@@ -177,7 +193,7 @@ QTextEdit {
     outline: none;
 }
 
-/* ==================== 按钮：玻璃药丸 ==================== */
+/* ---------- 通用按钮：玻璃药丸 ---------- */
 QPushButton {
     background-color: rgba(9, 132, 227, 0.80);
     color: #ffffff;
@@ -199,17 +215,19 @@ QPushButton:disabled {
     color: rgba(99, 110, 114, 0.80);
     border-color: rgba(255, 255, 255, 0.15);
 }
-QPushButton#dangerButton {
-    background-color: rgba(231, 76, 60, 0.85);
-}
-QPushButton#dangerButton:hover {
-    background-color: rgba(192, 57, 43, 0.95);
-}
+
+/* 状态类按钮（复用主色系统，不再各弹窗自行硬编码） */
 QPushButton#successButton {
     background-color: rgba(0, 184, 148, 0.80);
 }
 QPushButton#successButton:hover {
     background-color: rgba(0, 184, 148, 0.95);
+}
+QPushButton#dangerButton {
+    background-color: rgba(231, 76, 60, 0.85);
+}
+QPushButton#dangerButton:hover {
+    background-color: rgba(192, 57, 43, 0.95);
 }
 QPushButton#wizardButton {
     background-color: rgba(142, 68, 173, 0.85);
@@ -224,7 +242,7 @@ QPushButton#formatButton {
     background-color: rgba(22, 160, 133, 0.85);
 }
 
-/* ==================== 输入控件：玻璃输入框 ==================== */
+/* ---------- 输入控件：玻璃输入框 ---------- */
 QLineEdit {
     background-color: rgba(255, 255, 255, 0.60);
     border: 1px solid rgba(255, 255, 255, 0.70);
@@ -279,8 +297,48 @@ QLabel#searchIcon {
     color: #b2bec3;
     font-size: 14px;
 }
+QLabel#wizardTitle {
+    font-size: 16px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 4px;
+}
+QLabel#wizardDesc {
+    font-size: 11px;
+    color: #636e72;
+    margin-bottom: 4px;
+}
+QLabel#connectTitle {
+    font-size: 16px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 4px;
+}
+QLabel#connectDesc {
+    font-size: 11px;
+    color: #636e72;
+    margin-bottom: 8px;
+}
+/* 计数标签统一样式 */
+QLabel#countLabel {
+    color: #636e72;
+    font-size: 11px;
+}
+QDialog#QueryWizardDialog QScrollArea#columnsScrollArea {
+    border: 1px solid rgba(255, 255, 255, 0.70);
+    border-radius: 6px;
+    background-color: #ffffff;
+}
 
-/* ==================== 菜单：浮起玻璃 ==================== */
+/* 搜索框容器：玻璃面板 */
+QFrame#searchFrame {
+    background-color: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    border-radius: 12px;
+    padding: 4px;
+}
+
+/* ---------- 菜单：浮起玻璃 ---------- */
 QMenu {
     background-color: rgba(255, 255, 255, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.80);
@@ -303,7 +361,7 @@ QMenu::separator {
     margin: 3px 8px;
 }
 
-/* ==================== 滚动条：细玻璃条 ==================== */
+/* ---------- 滚动条：细玻璃条 ---------- */
 QScrollBar:vertical {
     background-color: transparent;
     width: 8px;
@@ -339,7 +397,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0px;
 }
 
-/* ==================== 工具提示：浮起玻璃 ==================== */
+/* ---------- 工具提示：浮起玻璃 ---------- */
 QToolTip {
     background-color: rgba(30, 39, 46, 0.92);
     color: #ecf0f1;
@@ -349,7 +407,7 @@ QToolTip {
     font-size: 12px;
 }
 
-/* ==================== 消息框 ==================== */
+/* ---------- 消息框 ---------- */
 QMessageBox {
     background-color: rgba(245, 246, 250, 0.95);
 }
@@ -358,7 +416,7 @@ QMessageBox QLabel {
     font-size: 13px;
 }
 
-/* ==================== 弹窗/向导样式 ==================== */
+/* ---------- 弹窗/向导样式 ---------- */
 QGroupBox {
     font-weight: bold;
     font-size: 12px;
@@ -389,4 +447,140 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background-color: rgba(9, 132, 227, 0.90);
     border-color: rgba(9, 132, 227, 0.90);
+}
+
+/* 自定义消息框（CustomMessageBox）统一使用主表，不再内联独立色值 */
+CustomMessageBox, QDialog#customMessageBox {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #dfe9f3, stop:1 #f3e7ee);
+    border-radius: 12px;
+}
+
+/* =====================================================================
+   弹窗/对话框统一样式（与 dialogs.py、db_connect_dialog.py、custom_dialogs.py
+   复用，各弹窗不得再自行 setStyleSheet 硬编码色值）
+   ===================================================================== */
+
+/* 查询向导对话框 */
+QDialog#QueryWizardDialog {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #dfe9f3, stop:1 #f3e7ee);
+}
+QDialog#QueryWizardDialog QGroupBox {
+    font-weight: bold;
+    font-size: 13px;
+    color: #2c3e50;
+    border: 2px solid rgba(255, 255, 255, 0.70);
+    border-radius: 8px;
+    margin-top: 12px;
+    padding-top: 16px;
+    background-color: rgba(255, 255, 255, 0.35);
+}
+QDialog#QueryWizardDialog QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 15px;
+    padding: 0 8px;
+}
+QDialog#QueryWizardDialog QCheckBox {
+    color: #2c3e50;
+    font-size: 13px;
+    spacing: 6px;
+}
+QDialog#QueryWizardDialog QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 2px solid #b2bec3;
+}
+QDialog#QueryWizardDialog QCheckBox::indicator:checked {
+    background-color: #0984e3;
+    border-color: #0984e3;
+}
+QDialog#QueryWizardDialog QComboBox {
+    min-height: 32px;
+    font-size: 13px;
+}
+QDialog#QueryWizardDialog QLineEdit {
+    min-height: 32px;
+    font-size: 13px;
+}
+QDialog#QueryWizardDialog QLabel {
+    font-size: 13px;
+}
+QDialog#QueryWizardDialog QPushButton {
+    min-height: 34px;
+    font-size: 13px;
+}
+QDialog#QueryWizardDialog QScrollArea {
+    border: 1px solid rgba(255, 255, 255, 0.70);
+    border-radius: 6px;
+    background-color: #ffffff;
+}
+
+/* 数据库连接对话框 */
+QDialog#DatabaseConnectDialog {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #dfe9f3, stop:1 #f3e7ee);
+}
+QDialog#DatabaseConnectDialog QGroupBox {
+    font-weight: bold;
+    font-size: 13px;
+    color: #2c3e50;
+    border: 2px solid rgba(255, 255, 255, 0.70);
+    border-radius: 8px;
+    margin-top: 12px;
+    padding-top: 16px;
+    background-color: rgba(255, 255, 255, 0.35);
+}
+QDialog#DatabaseConnectDialog QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 15px;
+    padding: 0 8px;
+}
+QDialog#DatabaseConnectDialog QLineEdit {
+    min-height: 30px;
+    font-size: 13px;
+}
+QDialog#DatabaseConnectDialog QLabel {
+    font-size: 13px;
+}
+QDialog#DatabaseConnectDialog QPushButton {
+    min-height: 32px;
+    font-size: 13px;
+}
+QDialog#DatabaseConnectDialog QComboBox {
+    min-height: 32px;
+    font-size: 13px;
+}
+QDialog#DatabaseConnectDialog QSpinBox {
+    min-height: 32px;
+    font-size: 13px;
+}
+
+/* 自定义消息框按钮统一（与主表 QPushButton 保持一致） */
+QDialog#customMessageBox QPushButton {
+    background-color: #0984e3;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    min-width: 80px;
+}
+QDialog#customMessageBox QPushButton:hover {
+    background-color: #0773c7;
+}
+QDialog#customMessageBox QPushButton:pressed {
+    background-color: #0566b3;
+}
+
+/* SQL 预览文本框（查询向导） */
+QDialog#QueryWizardDialog QTextEdit#sqlPreview {
+    background-color: #2c3e50;
+    color: #2ecc71;
+    border: 1px solid rgba(255, 255, 255, 0.70);
+    border-radius: 6px;
+    padding: 6px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
 }

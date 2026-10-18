@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQL_Manager · 数据库管理平台 · 3D/2D 交互展示</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #0984e3;
+    --primary-hover: #0773c7;
+    --success: #00b894;
+    --danger: #e74c3c;
+    --warning: #fdcb6e;
+    --bg: #dfe9f3;
+    --surface: rgba(255,255,255,0.5);
+    --text: #2c3e50;
+    --text-muted: #636e72;
+    --border: rgba(255,255,255,0.65);
+  }
+  html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  #app { height: 100vh; display: grid; grid-template-rows: 60px 1fr; grid-template-columns: 260px 1fr; }
+
+  /* 顶部导航 */
+  header {
+    background: rgba(30,39,46,0.85);
+    color: #ecf0f1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; z-index: 100;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: bold; font-size: 18px; }
+  .brand-dot { width: 10px; height: 10px; background: var(--success); border-radius: 50%; box-shadow: 0 0 8px var(--success); }
+  nav .nav-item { margin-left: 24px; font-size: 14px; cursor: pointer; opacity: 0.9; transition: opacity .2s; }
+  nav .nav-item:hover { opacity: 1; color: var(--primary); }
+
+  /* 左侧边栏 */
+  aside {
+    background: rgba(255,255,255,0.5);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .panel-title { padding: 16px 20px; font-size: 14px; font-weight: bold; color: var(--text-muted); border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 1px; }
+  .menu { padding: 12px 0; }
+  .menu-item { padding: 12px 20px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 10px; transition: background .2s; border-left: 3px solid transparent; }
+  .menu-item:hover { background: rgba(9,132,227,0.15); border-left-color: var(--primary); }
+  .menu-item.active { background: rgba(9,132,227,0.25); border-left-color: var(--primary); color: var(--primary); font-weight: bold; }
+  .menu-item .icon { font-size: 16px; }
+
+  /* 主内容区：3D 画布 */
+  main {
+    position: relative;
+    background: linear-gradient(135deg, #e8ebf5 0%, #f3e7ee 100%);
+    overflow: hidden;
+  }
+  #canvas3d { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+
+  /* 2D 覆盖层 / 功能面板 */
+  .overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+    display: flex; flex-direction: column; gap: 16px; padding: 20px;
+  }
+  .card {
+    pointer-events: auto;
+    background: var(--surface);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    width: 320px;
+  }
+  .card h3 { margin-bottom: 12px; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .card h3 .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--primary); color: #fff; margin-left: auto; }
+  .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .stat { flex: 1; background: rgba(255,255,255,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+  .stat .val { font-size: 18px; font-weight: bold; color: var(--primary); display: block; }
+  .stat .lbl { font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px; }
+  .btn {
+    width: 100%; padding: 8px 14px; border: none; border-radius: 10px; background: var(--primary); color: #fff;
+    font-size: 13px; font-weight: bold; cursor: pointer; transition: background .2s, transform .1s;
+  }
+  .btn:hover { background: var(--primary-hover); }
+  .btn:active { transform: scale(0.96); }
+  .btn.secondary { background: rgba(255,255,255,0.4); color: var(--text); border: 1px solid var(--border); }
+  .btn.secondary:hover { background: rgba(255,255,255,0.6); }
+  .btn.success { background: var(--success); }
+  .btn.danger { background: var(--danger); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th { text-align: left; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.3); }
+  tr:hover td { background: rgba(9,132,227,0.1); }
+
+  .slow-badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: bold; background: var(--danger); color: #fff; }
+  .ok-badge { background: var(--success); color: #fff; }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: rgba(255,255,255,0.4); border: 1px solid var(--border); margin: 2px 4px 2px 0; }
+
+  /* 3D 画布上的浮层标签 */
+  .label {
+    position: absolute; padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,0.9);
+    border: 1px solid var(--border); font-size: 11px; color: var(--text); pointer-events: none;
+    white-space: nowrap; transform: translate(-50%, -100%); box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
+  /* 弹窗 */
+  .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
+  .modal.open { display: flex; }
+  .modal-content { background: var(--surface); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 560px; max-width: 90vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+  .modal h2 { margin-bottom: 16px; font-size: 18px; }
+  .modal textarea, .modal input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,0.6); font-family: Consolas, monospace; font-size: 13px; margin-bottom: 12px; }
+  .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  .result-box { background: rgba(30,39,46,0.85); color: #dfe6e9; padding: 12px; border-radius: 8px; font-family: Consolas, monospace; font-size: 12px; max-height: 200px; overflow-y: auto; margin-top: 10px; }
+
+  /* 状态栏 */
+  footer {
+    background: rgba(30,39,46,0.85); color: rgba(236,240,241,0.92);
+    padding: 6px 20px; font-size: 12px; display: flex; gap: 24px; z-index: 100;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .chip-group { display: flex; gap: 12px; align-items: center; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <div class="brand"><div class="brand-dot"></div>SQL_Manager</div>
+    <nav>
+      <div class="nav-item" onclick="switchView('dashboard')">仪表盘</div>
+      <div class="nav-item" onclick="switchView('topology')">拓扑图</div>
+      <div class="nav-item" onclick="switchView('query')">SQL查询</div>
+      <div class="nav-item" onclick="switchView('cluster')">集群/分片</div>
+      <div class="nav-item" onclick="switchView('performance')">性能监控</div>
+    </nav>
+  </header>
+
+  <aside>
+    <div class="panel-title">数据库对象</div>
+    <div class="menu">
+      <div class="menu-item active" onclick="selectMenu(this, 'sqlite')"><span class="icon">💾</span> SQLite 本地</div>
+      <div class="menu-item" onclick="selectMenu(this, 'mysql')"><span class="icon">🐬</span> MySQL</div>
+      <div class="menu-item" onclick="selectMenu(this, 'postgres')"><span class="icon">🐘</span> PostgreSQL</div>
+      <div class="menu-item" onclick="selectMenu(this, 'mariadb')"><span class="icon">🐬</span> MariaDB</div>
+      <div class="menu-item" onclick="selectMenu(this, 'sqlserver')"><span class="icon">🔷</span> SQL Server</div>
+      <div class="menu-item" onclick="selectMenu(this, 'oracle')"><span class="icon">🔶</span> Oracle</div>
+      <div class="menu-item" onclick="selectMenu(this, 'mongodb')"><span class="icon":"🍃"> MongoDB</div>
+      <div class="menu-item" onclick="selectMenu(this, 'redis')"><span class="icon":"🔴"> Redis</div>
+      <div class="menu-item" onclick="selectMenu(this, 'elasticsearch')"><span class="icon":"🔍"> Elasticsearch</div>
+      <div class="menu-item" onclick="selectMenu(this, 'milvus')"><span class="icon":"🎯"> Milvus 向量库</div>
+    </div>
+    <div class="panel-title" style="margin-top:20px;">数据库组 / 分片</div>
+    <div class="menu">
+      <div class="menu-item" onclick="selectMenu(this, 'group-a')"><span class="icon">📦</span> 组 A (3 节点)</div>
+      <div class="menu-item" onclick="selectMenu(this, 'group-b')"><span class="icon">📦</span> 组 B (2 节点)</div>
+      <div class="menu-item" onclick="selectMenu(this, 'shard-1')"><span class="icon">🔢</span> 分片 1 (100万行)</div>
+      <div class="menu-item" onclick="selectMenu(this, 'shard-2')"><span class="icon">🔢</span> 分片 2 (80万行)</div>
+    </div>
+  </aside>
+
+  <main>
+    <canvas id="canvas3d"></canvas>
+    <div class="overlay">
+      <!-- 状态概览 -->
+      <div class="card" style="position:absolute; top:20px; left:20px; width:300px;">
+        <h3>系统状态 <span class="badge">在线</span></h3>
+        <div class="row">
+          <div class="stat"><span class="val" id="statConn">0</span><span class="lbl">连接</span></div>
+          <div class="stat"><span class="val" id="statQps">0</span><span class="lbl">QPS</span></div>
+          <div class="stat"><span class="val" id="statSlow">0</span><span class="lbl">慢SQL</span></div>
+        </div>
+        <div class="chip">负载均衡: 轮询</div>
+        <div class="chip">分片策略: 范围分片</div>
+        <div class="chip">同步: 实时</div>
+      </div>
+
+      <!-- 快速操作 -->
+      <div class="card" style="position:absolute; top:180px; left:20px; width:300px;">
+        <h3>快速操作</h3>
+        <button class="btn" onclick="openQueryModal()">▶ 执行 SQL</button>
+        <button class="btn secondary" style="margin-top:8px;" onclick="simulateSlowSql()">⚠ 模拟慢SQL</button>
+        <button class="btn secondary" style="margin-top:8px;" onclick="rebalance()">⚖ 负载再均衡</button>
+        <button class="btn success" style="margin-top:8px;" onclick="syncData()">🔄 触发数据同步</button>
+      </div>
+
+      <!-- 慢SQL 列表 -->
+      <div class="card" style="position:absolute; top:360px; left:20px; width:300px; max-height:320px; overflow-y:auto;">
+        <h3>慢SQL 监控 <span class="badge" id="slowCount">0</span></h3>
+        <table id="slowTable">
+          <thead><tr><th>时间</th><th>语句</th><th>耗时</th><th>状态</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- 节点详情 -->
+      <div class="card" style="position:absolute; top:20px; right:20px; width:340px;">
+        <h3>选中节点 <span class="badge" id="nodeTypeBadge">-</span></h3>
+        <div id="nodeDetail">请点击 3D 场景中的数据库节点查看详情</div>
+      </div>
+    </div>
+
+    <!-- SQL 查询弹窗 -->
+    <div class="modal" id="queryModal">
+      <div class="modal-content">
+        <h2>💻 SQL 查询编辑器</h2>
+        <textarea id="sqlInput" rows="6" placeholder="输入标准 SQL 语句...&#10;例如: SELECT * FROM users WHERE status = 1 LIMIT 100"></textarea>
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <select id="dbTarget" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:8px; background:rgba(255,255,255,0.6);">
+            <option>自动路由 (负载均衡)</option>
+            <option>组 A - 主节点</option>
+            <option>组 A - 从节点 1</option>
+            <option>组 A - 从节点 2</option>
+            <option>组 B - 主节点</option>
+          </select>
+          <select id="pageSize" style="width:120px; padding:8px; border:1px solid var(--border); border-radius:8px; background:rgba(255,255,255,0.6);">
+            <option value="100">分段加载: 100 行</option>
+            <option value="500">分段加载: 500 行</option>
+            <option value="1000">分段加载: 1000 行</option>
+          </select>
+        </div>
+        <div class="actions">
+          <button class="btn secondary" onclick="document.getElementById('queryModal').classList.remove('open')">取消</button>
+          <button class="btn success" onclick="runSql()">执行查询</button>
+        </div>
+        <div class="result-box" id="queryResult">执行结果将在此显示...</div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div>SQL_Manager v2.0 · 局域网多负载均衡版</div>
+    <div class="chip-group">
+      <span class="chip">WAL 模式: 开启</span>
+      <span class="chip">内存映射: 256MB</span>
+      <span class="chip">并发查询: 3</span>
+      <span class="chip">超时: 30s</span>
+    </div>
+  </footer>
+</div>
+
+<!-- Three.js (通过 CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ============ 3D 场景 ============
+const canvas = document.getElementById('canvas3d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setSize(window.innerWidth - 260, window.innerHeight - 60);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+const scene = new THREE.Scene();
+scene.background = null; // 透明，显示页面渐变背景
+scene.fog = new THREE.FogExp2(0xdfe9f3, 0.0015);
+
+const camera = new THREE.PerspectiveCamera(45, (window.innerWidth - 260) / (window.innerHeight - 60), 0.1, 2000);
+camera.position.set(0, 120, 220);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.minDistance = 80;
+controls.maxDistance = 500;
+
+// 环境光 + 点光
+const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambient);
+const pointLight = new THREE.PointLight(0x0984e3, 1, 500);
+pointLight.position.set(50, 100, 50);
+scene.add(pointLight);
+
+// 地面网格
+const grid = new THREE.GridHelper(300, 40, 0xe8ebf5, 0xf3e7ee);
+scene.add(grid);
+
+// 节点数据
+const nodes = [
+  { id: 'sqlite', name: 'SQLite 本地', type: 'file', x: -80, y: 0, z: -40, color: 0x0984e3, desc: '本地 SQLite 数据库文件' },
+  { id: 'mysql', name: 'MySQL 主节点', type: 'sql', x: 60, y: 0, z: 30, color: 0x0068a4, desc: 'MySQL 8.0 主库' },
+  { id: 'mysql-replica', name: 'MySQL 从节点 1', type: 'sql-replica', x: 140, y: 0, z: -20, color: 0x0068a4, desc: 'MySQL 只读从库' },
+  { id: 'postgres', name: 'PostgreSQL', type: 'sql', x: -60, y: 0, z: 80, color: 0x336791, desc: 'PostgreSQL 15' },
+  { id: 'mariadb', name: 'MariaDB', type: 'sql', x: 20, y: 0, z: 120, color: 0x006f93, desc: 'MariaDB 10.6' },
+  { id: 'mongodb', name: 'MongoDB', type: 'nosql', x: -120, y: 0, z: 140, color: 0x04a8b9, desc: '文档型数据库' },
+  { id: 'redis', name: 'Redis 缓存', type: 'cache', x: 100, y: 0, z: 100, color: 0xd9242f, desc: '内存键值缓存' },
+  { id: 'elasticsearch', name: 'Elasticsearch', type: 'search', x: -40, y: 0, z: -100, color: 0x00b39b, desc: '全文搜索引擎' },
+  { id: 'milvus', name: 'Milvus 向量库', type: 'vector', x: 40, y: 0, z: -140, color: 0x6d28d9, desc: 'AI 向量数据库' },
+  { id: 'shard-1', name: '分片 1', type: 'shard', x: -150, y: 0, z: 60, color: 0xfdcb6e, desc: '分片 1 · 约 100 万行' },
+  { id: 'shard-2', name: '分片 2', type: 'shard', x: 150, y: 0, z: -80, color: 0xfdcb6e, desc: '分片 2 · 约 80 万行' },
+];
+
+const nodeMeshes = {};
+const nodeLabels = [];
+const loader = new THREE.FontLoader();
+
+// 加载字体用于 3D 文字标签（备选方案：使用 Sprite + Canvas 纹理）
+function createNode(data) {
+  const group = new THREE.Group();
+  group.position.set(data.x, data.y, data.z);
+
+  // 球体/立方体根据类型
+  let mesh;
+  if (data.type === 'file') {
+    const geo = new THREE.CylinderGeometry(6, 6, 4, 16);
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: data.color, roughness: 0.4 }));
+    mesh.rotation.x = Math.PI / 2;
+  } else if (data.type === 'shard') {
+    const geo = new THREE.IcosahedronGeometry(7, 1);
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: data.color, emissive: data.color, emissiveIntensity: 0.3 }));
+  } else if (data.type.includes('replica')) {
+    const geo = new THREE.BoxGeometry(8, 8, 8);
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: data.color, opacity: 0.7, transparent: true }));
+  } else {
+    const geo = new THREE.SphereGeometry(7, 16, 16);
+    mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: data.color, roughness: 0.3, metalness: 0.1 }));
+  }
+  mesh.userData = { nodeId: data.id };
+  mesh.castShadow = true;
+  group.add(mesh);
+
+  // 轻微呼吸动画标记
+  group.userData = { ...data, mesh };
+  nodeMeshes[data.id] = group;
+  scene.add(group);
+
+  // HTML 标签（CSS2D 替代方案：使用 div 绝对定位，投影到屏幕）
+  const labelEl = document.createElement('div');
+  labelEl.className = 'label';
+  labelEl.textContent = data.name;
+  labelEl.style.background = `rgba(255,255,255,0.95)`;
+  labelEl.style.borderColor = `rgba(${ (data.color>>16)&255 },${ (data.color>>8)&255 },${ data.color&255 },0.5)`;
+  document.body.appendChild(labelEl);
+  nodeLabels.push({ el: labelEl, node: group, desc: data.desc });
+}
+nodes.forEach(createNode);
+
+// 连接线（负载均衡/同步拓扑）
+const connections = [
+  ['sqlite', 'mysql'], ['mysql', 'mysql-replica'], ['postgres', 'mariadb'],
+  ['mongodb', 'redis'], ['elasticsearch', 'milvus'], ['shard-1', 'shard-2'],
+  ['mysql', 'shard-1'], ['postgres', 'shard-2']
+];
+const lineMaterial = new THREE.LineBasicMaterial({ color: 0xb2bec3, transparent: true, opacity: 0.4 });
+connections.forEach(([a, b]) => {
+  const na = nodeMeshes[a], nb = nodeMeshes[b];
+  if (!na || !nb) return;
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([na.position, nb.position]),
+    lineMaterial
+  );
+  scene.add(line);
+});
+
+// 射线投射用于点击选中
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const nodeDetail = document.getElementById('nodeDetail');
+const nodeTypeBadge = document.getElementById('nodeTypeBadge');
+
+window.addEventListener('pointerdown', (e) => {
+  // 只在 3D 画布区域点击生效
+  if (e.target !== canvas && !canvas.contains(e.target)) return;
+  mouse.x = (e.clientX - 260) / (window.innerWidth - 260) * 2 - 1;
+  mouse.y = -(e.clientY - 60) / (window.innerHeight - 60) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(Object.values(nodeMeshes).flatMap(g => g.children));
+  if (intersects.length > 0) {
+    let mesh = intersects[0].object;
+    // 向上找到 group
+    let group = mesh;
+    while (group && !group.userData.nodeId) group = group.parent;
+    if (group) selectNode(group.userData);
+  }
+});
+
+function selectNode(data) {
+  // 高亮
+  Object.values(nodeMeshes).forEach(g => {
+    g.children.forEach(c => {
+      if (c.material) c.material.emissiveIntensity = 0;
+    });
+  });
+  data.mesh.children.forEach(c => {
+    if (c.material) c.material.emissiveIntensity = 0.5;
+  });
+
+  nodeDetail.innerHTML = `
+    <div style="font-weight:bold; color:var(--primary);">${data.name}</div>
+    <div style="color:var(--text-muted); font-size:12px; margin-top:4px;">${data.desc}</div>
+    <div style="margin-top:10px; font-size:12px; color:var(--text-muted);">
+      类型: ${data.type}<br>
+      位置: (${data.x}, ${data.y}, ${data.z})
+    </div>
+  `;
+  nodeTypeBadge.textContent = data.type.toUpperCase();
+  nodeTypeBadge.className = 'badge';
+  nodeTypeBadge.style.background = data.type === 'shard' ? 'var(--warning)' : 'var(--primary)';
+}
+
+// ============ 动画循环 ============
+let time = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  time += 0.01;
+
+  // 节点轻微悬浮 + 呼吸
+  nodes.forEach((d, i) => {
+    const g = nodeMeshes[d.id];
+    g.position.y = d.y + Math.sin(time + i) * 1.5;
+    g.rotation.y += 0.005;
+    g.children.forEach(c => { if (c.material) c.material.emissiveIntensity = 0; });
+  });
+
+  // 屏幕标签跟随 3D 位置投影
+  nodeLabels.forEach(({ el, node, desc }) => {
+    const pos = node.position.clone();
+    const vector = pos.project(camera);
+    const x = (vector.x * 0.5 + 0.5) * (window.innerWidth - 260) + 260;
+    const y = (-(vector.y * 0.5) + 0.5) * (window.innerHeight - 60) + 60;
+    // 视锥外隐藏
+    if (vector.z < -1 || vector.z > 1) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.title = desc;
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// 响应式
+window.addEventListener('resize', () => {
+  const w = window.innerWidth - 260, h = window.innerHeight - 60;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
+
+// ============ 2D 交互逻辑 ============
+function switchView(name) {
+  document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+  // 简单切换提示（实际可扩展为不同 3D 场景）
+  const statConn = document.getElementById('statConn');
+  if (name === 'topology') statConn.textContent = nodes.length;
+}
+
+function selectMenu(el, id) {
+  document.querySelectorAll('.menu-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  // 模拟选中节点
+  const node = nodes.find(n => n.id === id);
+  if (node) selectNode(node);
+}
+
+// 状态模拟
+let qps = 0, connCount = 0, slowCount = 0;
+const slowTableBody = document.querySelector('#slowTable tbody');
+function updateStats() {
+  connCount = Math.floor(Math.random() * 8) + 3;
+  qps = Math.floor(Math.random() * 120) + 30;
+  document.getElementById('statConn').textContent = connCount;
+  document.getElementById('statQps').textContent = qps;
+  document.getElementById('statSlow').textContent = slowCount;
+}
+setInterval(updateStats, 1500);
+
+// 慢SQL 列表
+const slowSamples = [
+  { time: '16:42:10', sql: 'SELECT * FROM orders WHERE created_at > ...', ms: '2450ms', slow: true },
+  { time: '16:41:55', sql: 'SELECT COUNT(*) FROM users GROUP BY city', ms: '1890ms', slow: true },
+  { time: '16:41:30', sql: 'SELECT * FROM products WHERE price > 100', ms: '320ms', slow: false },
+];
+function addSlowSql(sql, ms) {
+  const row = document.createElement('tr');
+  const now = new Date();
+  const tstr = now.toLocaleTimeString('zh-CN', { hour12: false });
+  row.innerHTML = `<td>${tstr}</td><td style="font-family:Consolas,monospace;font-size:11px;">${sql}</td><td>${ms}</td><td><span class="slow-badge">慢SQL</span></td>`;
+  slowTableBody.prepend(row);
+  slowCount++;
+  document.getElementById('slowCount').textContent = slowCount;
+  if (slowTableBody.children.length > 8) slowTableBody.removeChild(slowTableBody.lastElementChild);
+}
+slowSamples.forEach(s => {
+  const row = document.createElement('tr');
+  row.innerHTML = `<td>${s.time}</td><td style="font-family:Consolas,monospace;font-size:11px;">${s.sql}</td><td>${s.ms}</td><td><span class="${s.slow ? 'slow-badge' : 'ok-badge'}">${s.slow ? '慢SQL' : '正常'}</span></td>`;
+  slowTableBody.appendChild(row);
+  slowCount++;
+});
+document.getElementById('slowCount').textContent = slowCount;
+
+function simulateSlowSql() {
+  const sqls = [
+    'SELECT * FROM big_table WHERE unindexed_col = ?',
+    'SELECT t1.*, t2.* FROM orders t1 JOIN users t2 ON t1.uid = t2.id WHERE t1.amount > 10000',
+    'SELECT * FROM logs WHERE message LIKE ? LIMIT 10000'
+  ];
+  const sql = sqls[Math.floor(Math.random() * sqls.length)];
+  const ms = (Math.random() * 3000 + 800).toFixed(0) + 'ms';
+  addSlowSql(sql, ms);
+  // 3D 节点闪烁提示
+  const target = nodeMeshes['mysql'];
+  let flashes = 0;
+  const iv = setInterval(() => {
+    target.children.forEach(c => { if(c.material) c.material.emissiveIntensity = flashes % 2 === 0 ? 1 : 0; });
+    flashes++;
+    if (flashes > 6) { clearInterval(iv); target.children.forEach(c => { if(c.material) c.material.emissiveIntensity = 0; }); }
+  }, 150);
+}
+
+// SQL 查询弹窗
+function openQueryModal() {
+  document.getElementById('queryModal').classList.add('open');
+  document.getElementById('queryResult').textContent = '执行结果将在此显示...';
+}
+function runSql() {
+  const sql = document.getElementById('sqlInput').value.trim();
+  const target = document.getElementById('dbTarget').value;
+  const page = document.getElementById('pageSize').value;
+  const result = document.getElementById('queryResult');
+  if (!sql) { result.textContent = '⚠ 请输入 SQL 语句'; return; }
+  result.textContent = '执行中（分段加载...）';
+  setTimeout(() => {
+    const isSlow = Math.random() < 0.25;
+    const ms = (Math.random() * 500 + 50).toFixed(0);
+    result.innerHTML = `
+      ✅ 执行成功<br>
+      目标节点: ${target}<br>
+      返回行数: ${Math.floor(Math.random()*1000)+100} (分段: ${page} 行/页)<br>
+      IO 耗时: ${ms} ms<br>
+      是否慢SQL: <span class="${isSlow ? 'slow-badge' : 'ok-badge'}">${isSlow ? '是' : '否'}</span>
+    `;
+    if (isSlow) addSlowSql(sql.length > 40 ? sql.slice(0, 40) + '...' : sql, ms + 'ms');
+  }, 800);
+}
+
+// 集群操作
+function rebalance() {
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.textContent = '再均衡中...';
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = orig;
+    btn.disabled = false;
+    alert('负载再均衡完成：读流量已自动分发至从节点，写流量保持在主节点。');
+  }, 1200);
+}
+function syncData() {
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.textContent = '同步中...';
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = orig;
+    btn.disabled = false;
+    alert('跨服务器数据同步完成：所有分片数据已达成最终一致。');
+  }, 1500);
+}
+</script>
+
+</body>
+</html>
