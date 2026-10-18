@@ -39,6 +39,14 @@ QToolBar QToolButton:hover {
 QToolBar QToolButton:pressed {
     background-color: #1a252f;
 }
+QToolBar QToolButton#dangerAction {
+    background-color: transparent;
+    color: #e74c3c;
+}
+QToolBar QToolButton#dangerAction:hover {
+    background-color: #c0392b;
+    color: #ffffff;
+}
 
 /* ==================== 树组件样式 ==================== */
 QTreeWidget {

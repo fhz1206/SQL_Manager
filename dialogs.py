@@ -477,19 +477,21 @@ class QueryWizardDialog(QDialog):
         """
         ops = ['=', '!=', '>', '>=', '<', '<=', 'LIKE', 'LIKE', 'LIKE', 'IS NULL', 'IS NOT NULL']
         op = ops[op_idx] if op_idx < len(ops) else '='
+        # 转义值中的单引号，避免破坏SQL语句
+        safe_value = value.replace("'", "''")
 
         if op == 'IS NULL':
             return f'"{column}" IS NULL'
         elif op == 'IS NOT NULL':
             return f'"{column}" IS NOT NULL'
         elif op == 'LIKE' and op_idx == 7:
-            return f'"{column}" LIKE \'{value}%\''
+            return f'"{column}" LIKE \'{safe_value}%\''
         elif op == 'LIKE' and op_idx == 8:
-            return f'"{column}" LIKE \'%{value}\''
+            return f'"{column}" LIKE \'%{safe_value}\''
         elif op == 'LIKE':
-            return f'"{column}" LIKE \'%{value}%\''
+            return f'"{column}" LIKE \'%{safe_value}%\''
         else:
-            return f'"{column}" {op} \'{value}\''
+            return f'"{column}" {op} \'{safe_value}\''
 
     def _generate_sql(self):
         """生成SQL查询语句

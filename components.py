@@ -131,6 +131,7 @@ class VirtualTableWidget(QTableView):
         # 枚举全限定
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.load_more_signal = None  # 外部绑定加载更多回调
+        self._loading_more = False  # 防止滚动重复触发加载
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
     def _on_scroll(self, value):
@@ -154,8 +155,15 @@ class VirtualTableWidget(QTableView):
 
     def load_more(self):
         """触发加载更多回调
-        
-        如果设置了load_more_signal且还有更多数据,则触发加载
+
+        如果设置了load_more_signal且还有更多数据,则触发加载。
+        使用_loading_more标志防止滚动到底时重复触发。
         """
+        if self._loading_more:
+            return
         if self.load_more_signal and self.model.has_more:
-            self.load_more_signal()
+            self._loading_more = True
+            try:
+                self.load_more_signal()
+            finally:
+                self._loading_more = False

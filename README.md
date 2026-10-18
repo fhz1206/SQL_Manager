@@ -46,12 +46,15 @@
 
 ### 依赖安装
 ```bash
-pip install -r requirements.txt #还未修改
+pip install -r requirements.txt
 ```
 
 或手动安装依赖：
 ```bash
 pip install PyQt6
+
+# 可选：如需连接 MySQL / PostgreSQL 网络数据库
+pip install pymysql psycopg2-binary
 ```
 
 ## 使用方法
@@ -98,6 +101,9 @@ SQL_Manager/
 ├── config.py           # 全局配置
 ├── components.py       # 自定义组件（搜索框、虚拟表格）
 ├── dialogs.py          # 弹窗逻辑（查询向导）
+├── custom_dialogs.py   # 自定义消息框
+├── db_manager.py       # 数据库连接管理器（SQLite/MySQL/PostgreSQL）
+├── db_connect_dialog.py# 网络数据库连接对话框
 ├── style.css           # 界面样式
 ├── icon.ico            # 程序图标
 └── README.md           # 项目说明
@@ -118,6 +124,7 @@ SQL_Manager/
 欢迎提交问题报告和功能建议！
 
 ## 更新日志
+- v2.1.1 修复数据库切换时连接关闭错误、SQL分页LIMIT拼接错误、查询向导特殊字符转义、滚动重复加载等问题
 - v2.0.0 升级GUI框架至PyQt6，优化页面性能
 - v1.2.1 修复已知问题（自v1.1.0出现的恶性bug,包括但不限于开启的SQL过大导致的窗口崩毁等），重构项目代码，提高运行效率、优化打包方式
 - v1.2.0 针对大量数据的数据库的查看做出优化，部分代码用了更快速的语言进行覆写

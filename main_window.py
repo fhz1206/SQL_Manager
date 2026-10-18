@@ -85,6 +85,23 @@ class DBManager(QMainWindow):
         
         self.init_ui()
 
+    def _close_current_connection(self):
+        """关闭当前数据库连接
+
+        兼容 sqlite3 连接（close方法）与 DatabaseConnection（disconnect方法），
+        避免切换数据库时对网络数据库连接调用不存在的 close() 导致 AttributeError
+        """
+        if self.conn is None:
+            return
+        try:
+            if hasattr(self.conn, 'disconnect'):
+                self.conn.disconnect()
+            else:
+                self.conn.close()
+        except Exception as e:
+            print(f"关闭旧数据库连接失败: {str(e)}")
+        self.conn = None
+
     def _get_cursor(self):
         """获取当前连接的游标
 
@@ -123,25 +140,34 @@ class DBManager(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        open_db_action = QAction('📂 打开数据库', self)
-        open_db_action.triggered.connect(self.open_database)
-        toolbar.addAction(open_db_action)
-        
-        open_net_db_action = QAction('🌐 连接网络数据库', self)
-        open_net_db_action.triggered.connect(self.open_network_database)
-        toolbar.addAction(open_net_db_action)
+        self.open_db_action = QAction('📂 打开数据库', self)
+        self.open_db_action.triggered.connect(self.open_database)
+        toolbar.addAction(self.open_db_action)
+
+        self.open_net_db_action = QAction('🌐 连接网络数据库', self)
+        self.open_net_db_action.triggered.connect(self.open_network_database)
+        toolbar.addAction(self.open_net_db_action)
 
         toolbar.addSeparator()
 
-        close_db_action = QAction('✖ 关闭数据库', self)
-        close_db_action.triggered.connect(self.close_database)
-        toolbar.addAction(close_db_action)
-        
+        self.close_db_action = QAction('✖ 关闭数据库', self)
+        self.close_db_action.setObjectName('dangerAction')
+        self.close_db_action.triggered.connect(self.close_database)
+        toolbar.addAction(self.close_db_action)
+
         toolbar.addSeparator()
-        
+
+        self.refresh_db_action = QAction('🔄 刷新', self)
+        self.refresh_db_action.triggered.connect(self.refresh_current_table)
+        toolbar.addAction(self.refresh_db_action)
+
+        toolbar.addSeparator()
+
         about_action = QAction('ℹ 关于', self)
         about_action.triggered.connect(self.show_about)
         toolbar.addAction(about_action)
+
+        self._refresh_toolbar_state()
 
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -459,11 +485,18 @@ class DBManager(QMainWindow):
                 self.tab_widget.setCurrentWidget(self.sql_tab)
                 self.status_bar.showMessage('查询向导已生成并执行查询', 3000)
 
+    def _refresh_toolbar_state(self):
+        """根据数据库连接状态启用/禁用工具栏按钮"""
+        has_db = self.conn is not None
+        self.close_db_action.setEnabled(has_db)
+        self.refresh_db_action.setEnabled(has_db)
+
     def update_ui_state(self):
         """根据数据库连接状态更新UI
-        
+
         更新状态栏和控件可用性
         """
+        self._refresh_toolbar_state()
         has_db = self.conn is not None
         if has_db:
             self.status_bar.showMessage(f'当前数据库: {self.current_db}')
@@ -480,14 +513,15 @@ class DBManager(QMainWindow):
         
         if file_name:
             try:
-                if self.conn:
-                    self.conn.close()
+                self._close_current_connection()
                 self.current_db = file_name
                 self.conn = sqlite3.connect(file_name)
                 self.refresh_db_tree()
                 self.update_ui_state()
                 self.status_bar.showMessage(f'已打开数据库: {file_name}', 3000)
             except Exception as e:
+                self.conn = None
+                self.current_db = None
                 show_error("错误", f"无法打开数据库: {str(e)}", self)
 
     def open_network_database(self):
@@ -500,8 +534,7 @@ class DBManager(QMainWindow):
             connection_params = dialog.get_connection_params()
             if connection_params:
                 try:
-                    if self.conn:
-                        self.conn.close()
+                    self._close_current_connection()
                     
                     # 使用新的数据库连接管理器
                     db_type = connection_params["type"]
@@ -968,8 +1001,10 @@ class DBManager(QMainWindow):
         try:
             cursor = self._get_cursor()
             sql = getattr(self, 'sql_result_sql', '') or self.sql_editor.toPlainText().strip()
+            # 将原查询包装为子查询再分页，避免原SQL已含LIMIT/OFFSET时拼接产生语法错误
+            base_sql = sql.rstrip().rstrip(';')
             offset = self.sql_result_loaded
-            cursor.execute(f"{sql} LIMIT {TABLE_PAGE_SIZE} OFFSET {offset}")
+            cursor.execute(f"SELECT * FROM ({base_sql}) LIMIT {TABLE_PAGE_SIZE} OFFSET {offset}")
             new_rows = cursor.fetchall()
             if new_rows:
                 self.result_table.model.add_data([list(row) for row in new_rows])
