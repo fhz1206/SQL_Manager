@@ -133,6 +133,9 @@ class ShardManager:
                     continue
                 if shard.hash_mod is None or shard.hash_remainder is None:
                     continue
+                # hash_mod 为 0 会导致 ZeroDivisionError，直接跳过非法分片
+                if shard.hash_mod <= 0:
+                    continue
                 if digest % shard.hash_mod == shard.hash_remainder:
                     return shard
             # 兜底：返回第一个 hash 分片
@@ -160,7 +163,12 @@ class ShardManager:
             shard_size: 单分片最大行数，默认使用 default_shard_size
             strategy: 分片策略 "range" 或 "hash"
         """
+        # 边界防护：shard_size 为 0/负数会除零，node_ids 为空会导致取模除零
         size = shard_size or self.default_shard_size
+        if not isinstance(size, int) or size <= 0:
+            size = self.default_shard_size or 1000000
+        if not node_ids:
+            return []
         shard_count = max(1, (total_rows + size - 1) // size)
         created: List[Shard] = []
 

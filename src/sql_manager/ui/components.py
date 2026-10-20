@@ -96,7 +96,8 @@ class TableModel(QAbstractTableModel):
             return cached
         elif role == Qt.ItemDataRole.BackgroundRole and self._alternating:
             # 与 style.css 中 QTableView::alternate-background-color 保持一致
-            return QColor('rgba(255, 255, 255, 0.30)') if row % 2 == 1 else None
+            # 注意：QColor 不支持 CSS 的 rgba() 字符串写法，需用 QColor(r,g,b,a)
+            return QColor(255, 255, 255, 76) if row % 2 == 1 else None
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -145,6 +146,9 @@ class VirtualTableWidget(QTableView):
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.setInterval(120)  # 滚动节流，避免频繁触发加载
         self._scroll_timer.timeout.connect(self._check_scroll_load)
+        self._unlock_timer = QTimer(self)  # 加载锁兜底解锁
+        self._unlock_timer.setSingleShot(True)
+        self._unlock_timer.timeout.connect(lambda: setattr(self, '_loading_more', False))
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
     def _on_scroll(self, value):
@@ -182,5 +186,14 @@ class VirtualTableWidget(QTableView):
             self._loading_more = True
             try:
                 self.load_more_signal()
-            finally:
+            except Exception:
                 self._loading_more = False
+                return
+            # 加载是异步的，这里立即解锁会导致滚动到底时重复触发，
+            # 改为延时解锁兜底；外部可在数据到达后调用 finish_loading() 提前解锁
+            self._unlock_timer.start(3000)
+
+    def finish_loading(self):
+        """外部数据加载完成后调用，提前解除加载锁"""
+        self._unlock_timer.stop()
+        self._loading_more = False

@@ -8,7 +8,8 @@
 
 import sqlite3
 import json
-from typing import Optional, Dict, Any, Union
+import threading
+from typing import Optional, Dict, Any, Union, List, Tuple
 from PyQt6.QtWidgets import QMessageBox
 
 # 尝试导入数据库驱动
@@ -43,6 +44,8 @@ class DatabaseConnection:
         self.connection_params = connection_params
         self.conn = None
         self.cursor = None
+        # 线程锁：后台任务与主线程可能同时访问同一连接，避免游标互相覆盖
+        self._lock = threading.RLock()
 
         # 验证数据库类型和依赖
         if self.db_type == 'sqlite':
@@ -137,14 +140,72 @@ class DatabaseConnection:
             bool: 执行是否成功
         """
         try:
-            if params:
-                self.cursor.execute(sql, params)
-            else:
-                self.cursor.execute(sql)
+            with self._lock:
+                if params:
+                    self.cursor.execute(sql, params)
+                else:
+                    self.cursor.execute(sql)
             return True
         except Exception as e:
             print(f"SQL执行失败: {str(e)}")
             return False
+
+    def new_cursor(self):
+        """创建独立游标
+
+        后台线程任务必须使用独立游标，避免与主线程共享 self.cursor
+        导致结果集互相覆盖（原实现的并发竞态缺陷）。
+
+        Returns:
+            新游标对象
+        """
+        if not self.conn:
+            raise RuntimeError("数据库未连接，无法创建游标")
+        return self.conn.cursor()
+
+    def execute_page(self, sql: str, page_size: int, offset: int):
+        """分段执行查询，仅取一页数据（不一次性加载全部）
+
+        Args:
+            sql: SELECT 语句（不带 LIMIT/OFFSET）
+            page_size: 每页行数
+            offset: 偏移量
+
+        Returns:
+            tuple: (columns, rows)
+        """
+        base = sql.strip().rstrip(';')
+        page_sql = f"SELECT * FROM ({base}) _paged LIMIT {int(page_size)} OFFSET {int(offset)}"
+        cur = self.new_cursor()
+        try:
+            cur.execute(page_sql)
+            rows = [list(r) for r in cur.fetchall()]
+            columns = [d[0] for d in cur.description] if cur.description else []
+        finally:
+            cur.close()
+        return columns, rows
+
+    def count_rows(self, sql: str) -> int:
+        """统计查询结果总行数（在库内 COUNT，不拉取数据）
+
+        Args:
+            sql: SELECT 语句
+
+        Returns:
+            int: 总行数，失败返回 -1
+        """
+        base = sql.strip().rstrip(';')
+        count_sql = f"SELECT COUNT(*) FROM ({base}) _cnt"
+        cur = self.new_cursor()
+        try:
+            cur.execute(count_sql)
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            print(f"统计行数失败: {str(e)}")
+            return -1
+        finally:
+            cur.close()
 
     def fetchall(self) -> list:
         """获取所有查询结果
@@ -153,7 +214,8 @@ class DatabaseConnection:
             list: 查询结果列表
         """
         try:
-            return self.cursor.fetchall()
+            with self._lock:
+                return self.cursor.fetchall()
         except Exception as e:
             print(f"获取查询结果失败: {str(e)}")
             return []
@@ -165,7 +227,8 @@ class DatabaseConnection:
             dict: 查询结果字典
         """
         try:
-            return self.cursor.fetchone()
+            with self._lock:
+                return self.cursor.fetchone()
         except Exception as e:
             print(f"获取查询结果失败: {str(e)}")
             return None
@@ -173,12 +236,14 @@ class DatabaseConnection:
     def commit(self):
         """提交事务"""
         if self.conn:
-            self.conn.commit()
+            with self._lock:
+                self.conn.commit()
 
     def rollback(self):
         """回滚事务"""
         if self.conn:
-            self.conn.rollback()
+            with self._lock:
+                self.conn.rollback()
 
     def get_tables(self) -> list:
         """获取数据库中的所有表名

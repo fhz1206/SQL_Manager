@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from sql_manager.drivers.search_drivers import ElasticsearchDriver
+from .search_drivers import ElasticsearchDriver
 
 
 class OpenSearchDriver(ElasticsearchDriver):

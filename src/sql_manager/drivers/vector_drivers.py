@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from sql_manager.drivers.base import BaseDriver
+from .base import BaseDriver
 
 
 class MilvusDriver(BaseDriver):

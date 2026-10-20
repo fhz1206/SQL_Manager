@@ -7,19 +7,19 @@ NoSQL: mongodb, redis, etcd, cassandra, hbase, influxdb, neo4j, nebulagraph
 搜索: elasticsearch, opensearch
 """
 
-from sql_manager.drivers.registry import DriverRegistry, register_driver
-from sql_manager.drivers.sql_drivers import SqlDriver
-from sql_manager.drivers.nosql_drivers import (
+from .registry import DriverRegistry, register_driver
+from .sql_drivers import SqlDriver
+from .nosql_drivers import (
     MongoDriver, RedisDriver, EtcdDriver, Neo4jDriver,
     CassandraDriver, InfluxDBDriver, HBaseDriver,
 )
-from sql_manager.drivers.vector_drivers import (
+from .vector_drivers import (
     MilvusDriver, QdrantDriver, ChromaDriver, WeaviateDriver, PineconeDriver,
 )
-from sql_manager.drivers.search_drivers import ElasticsearchDriver
-from sql_manager.drivers.opensearch_driver import OpenSearchDriver
-from sql_manager.drivers.nebula_driver import NebulaGraphDriver
-from sql_manager.drivers.base import BaseDriver
+from .search_drivers import ElasticsearchDriver
+from .opensearch_driver import OpenSearchDriver
+from .nebula_driver import NebulaGraphDriver
+from .base import BaseDriver
 
 # ---------- SQL 型 ----------
 DriverRegistry.register("sqlite", SqlDriver)

@@ -14,7 +14,10 @@ from dataclasses import dataclass, field
 import threading
 import time
 
-from sql_manager.api.models import NodeStatus
+try:  # core 层不强依赖 api 层；取不到时退化为通用对象约束
+    from ..api.models import NodeStatus
+except Exception:  # pragma: no cover
+    NodeStatus = Any  # type: ignore
 
 
 @dataclass
@@ -114,13 +117,13 @@ class DynamicPlannerScheduler:
         if not available:
             return [None] * query_count
 
-        node_ids = [n.id for n in available]
+        node_ids = [n.node_id for n in available]
         n_nodes = len(available)
 
         # 若任务数 <= 节点数，直接一对一分配给最优节点
         if query_count <= n_nodes:
             scored = sorted(
-                [(self._node_cost(n), n.id) for n in available],
+                [(self._node_cost(n), n.node_id) for n in available],
                 key=lambda x: x[0],
             )
             return [scored[i % len(scored)][1] for i in range(query_count)]
@@ -128,7 +131,7 @@ class DynamicPlannerScheduler:
         # 任务多于节点：用 DP 贪心混合，每次把当前代价最小的节点分配给下一个任务，
         # 分配后该节点代价随负载增加而上升（模拟）。
         result: List[Optional[str]] = []
-        current_costs = {n.id: self._node_cost(n) for n in available}
+        current_costs = {n.node_id: self._node_cost(n) for n in available}
         for _ in range(query_count):
             best_id = min(current_costs, key=current_costs.get)
             result.append(best_id)
@@ -163,7 +166,7 @@ class DynamicPlannerScheduler:
                 (src.avg_io_ms if src.avg_io_ms > 0 else 50) +
                 (tgt.avg_io_ms if tgt.avg_io_ms > 0 else 50)
             )
-            plan.append((src.id, tgt.id, round(cost, 2)))
+            plan.append((src.node_id, tgt.node_id, round(cost, 2)))
             tgt_idx += 1
         return plan
 

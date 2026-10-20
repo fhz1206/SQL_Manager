@@ -7,9 +7,12 @@
 """
 
 from typing import Any, Dict, List, Optional
-import requests
+try:
+    import requests
+except ImportError:  # 惰性依赖：未安装时只在真正发起请求时报错
+    requests = None  # type: ignore
 
-from sql_manager.api.models import (
+from .models import (
     ConnectRequest, ConnectResponse, DisconnectRequest,
     SqlExecuteRequest, SqlExecuteResponse,
     DbGroupCreateRequest, DbGroupAddNodeRequest, ShardInfo,
@@ -21,6 +24,8 @@ class ApiClient:
     """轻量级 API 客户端，封装对 /api/v1/* 接口的调用"""
 
     def __init__(self, base_url: str = "http://127.0.0.1:8000", timeout: int = 30):
+        if requests is None:
+            raise ImportError("ApiClient 需要 requests，请安装: pip install requests")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()

@@ -46,23 +46,31 @@ class TableDataTask(QRunnable):
         rows = []
         total_rows = 0
         try:
+            # 使用独立游标，避免与主线程共享 cursor 造成结果集覆盖
             if isinstance(self.conn, DatabaseConnection):
                 info = self.conn.get_table_info(self.table_name)
                 columns = [col[0] for col in info]
-                cursor = self.conn.cursor
+                cursor = self.conn.new_cursor()
             else:
                 cursor = self.conn.cursor()
                 cursor.execute(f"PRAGMA table_info('{self.table_name}')")
                 columns = [col[1] for col in cursor.fetchall()]
 
-            cursor.execute(f"SELECT COUNT(*) FROM '{self.table_name}'")
-            total_rows = cursor.fetchone()[0]
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM '{self.table_name}'")
+                row = cursor.fetchone()
+                total_rows = row[0] if row else 0
 
-            cursor.execute(
-                f"SELECT * FROM '{self.table_name}' LIMIT {self.page_size} OFFSET {self.offset}"
-            )
-            raw_rows = cursor.fetchall()
-            rows = [list(r) for r in raw_rows]
+                cursor.execute(
+                    f"SELECT * FROM '{self.table_name}' LIMIT {int(self.page_size)} OFFSET {int(self.offset)}"
+                )
+                raw_rows = cursor.fetchall()
+                rows = [list(r) for r in raw_rows]
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
         except Exception as e:
             error = str(e)
         self.query_finished.emit(columns, total_rows, rows, error)
@@ -76,29 +84,79 @@ class QueryTask(QRunnable):
     """
     query_finished = pyqtSignal(object, object, int, object)
 
-    def __init__(self, conn, sql):
+    def __init__(self, conn, sql, page_size=None, offset=0):
+        """
+        Args:
+            conn: 数据库连接（DatabaseConnection 或 sqlite3 连接）
+            sql: 待执行 SQL
+            page_size: 每页行数；为 None 表示不分页（用于非 SELECT 或 PRAGMA）
+            offset: 偏移量
+        """
         super().__init__()
         self.conn = conn
         self.sql = sql
+        self.page_size = page_size
+        self.offset = offset
         self.setAutoDelete(True)
+
+    def _open_cursor(self):
+        """创建独立游标，避免与主线程共享 cursor 造成结果集覆盖"""
+        if isinstance(self.conn, DatabaseConnection):
+            return self.conn.new_cursor()
+        return self.conn.cursor()
+
+    def _count_total(self, base_sql: str) -> int:
+        """在库内统计总行数，失败时返回 -1"""
+        try:
+            cur = self._open_cursor()
+            try:
+                cur.execute(f"SELECT COUNT(*) FROM ({base_sql}) _cnt")
+                r = cur.fetchone()
+                return int(r[0]) if r else 0
+            finally:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+        except Exception:
+            return -1
 
     def run(self):
         error = None
         try:
-            if isinstance(self.conn, DatabaseConnection):
-                cursor = self.conn.cursor
-            else:
-                cursor = self.conn.cursor()
-            cursor.execute(self.sql)
-            first_word = self.sql.split(None, 1)[0].upper() if self.sql.split() else ''
-            if first_word in ('SELECT', 'WITH', 'PRAGMA', 'EXPLAIN', 'VALUES'):
-                rows = cursor.fetchall()
-                columns = [description[0] for description in cursor.description]
-                self.query_finished.emit([list(r) for r in rows], columns, len(rows), None)
-            else:
-                if hasattr(self.conn, 'commit'):
-                    self.conn.commit()
-                self.query_finished.emit(None, None, cursor.rowcount, None)
+            cursor = self._open_cursor()
+            try:
+                first_word = self.sql.split(None, 1)[0].upper() if self.sql.split() else ''
+                is_select = first_word in ('SELECT', 'WITH', 'VALUES')
+                # PRAGMA/EXPLAIN 无法包装为子查询，原样执行
+                is_plain = first_word in ('PRAGMA', 'EXPLAIN')
+
+                if is_select and self.page_size:
+                    base = self.sql.strip().rstrip(';')
+                    total = self._count_total(base)
+                    page_sql = (f"SELECT * FROM ({base}) _paged "
+                                f"LIMIT {int(self.page_size)} OFFSET {int(self.offset)}")
+                    cursor.execute(page_sql)
+                    rows = cursor.fetchall()
+                    columns = [d[0] for d in cursor.description] if cursor.description else []
+                    if total < 0:
+                        total = self.offset + len(rows)
+                    self.query_finished.emit([list(r) for r in rows], columns, total, None)
+                elif is_select or is_plain:
+                    cursor.execute(self.sql)
+                    rows = cursor.fetchall()
+                    columns = [d[0] for d in cursor.description] if cursor.description else []
+                    self.query_finished.emit([list(r) for r in rows], columns, len(rows), None)
+                else:
+                    cursor.execute(self.sql)
+                    if hasattr(self.conn, 'commit'):
+                        self.conn.commit()
+                    self.query_finished.emit(None, None, cursor.rowcount, None)
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
         except Exception as e:
             error = str(e)
             self.query_finished.emit(None, None, -1, error)
@@ -782,6 +840,7 @@ class DBManager(QMainWindow):
             if new_rows:
                 self.table_widget.model.add_data(new_rows)
                 self.table_loaded_rows += len(new_rows)
+                self.table_widget.finish_loading()
                 self.row_count_label.setText(f'共 {self.table_total_rows} 行（已加载 {self.table_loaded_rows} 行）')
             if self.table_loaded_rows >= self.table_total_rows:
                 self.table_load_more_btn.setVisible(False)
@@ -923,20 +982,15 @@ class DBManager(QMainWindow):
                 self.sql_result_loaded = 0
                 self.sql_result_sql = sql
 
+                # 始终分段加载：只展示第一页，其余通过"加载更多"按需拉取
                 if total_rows > SQL_RESULT_PROMPT_THRESHOLD:
-                    reply = QMessageBox.question(
+                    QMessageBox.information(
                         self, '提示',
-                        f'查询返回 {total_rows} 行数据，加载全部可能耗时较久，是否仅加载前{TABLE_PAGE_SIZE}行？',
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.No
+                        f'查询返回 {total_rows} 行数据，为避免卡顿仅先加载前 {TABLE_PAGE_SIZE} 行，'
+                        f'可点击"加载更多"继续获取。'
                     )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        rows = rows[:TABLE_PAGE_SIZE]
-                        has_more = True
-                    else:
-                        has_more = False
-                else:
-                    has_more = False
+                rows = rows[:TABLE_PAGE_SIZE]
+                has_more = len(rows) < total_rows
 
                 self.result_table.model.set_data(
                     data=rows,
@@ -945,6 +999,7 @@ class DBManager(QMainWindow):
                     has_more=has_more
                 )
                 self.sql_result_loaded = len(rows)
+                self.sql_result_total = total_rows
                 self.sql_result_count_label.setText(f'共 {total_rows} 行（已加载 {len(rows)} 行）')
                 self.sql_load_more_btn.setVisible(has_more)
                 self.result_table.load_more_signal = self.load_more_sql_result
@@ -954,7 +1009,8 @@ class DBManager(QMainWindow):
                 self.status_bar.showMessage(f'SQL执行成功，影响了 {total_rows} 行', 3000)
                 self.refresh_db_tree()
 
-        query_task = QueryTask(self.conn, sql)
+        # 首屏只取一页，剩余数据由"加载更多"按需拉取
+        query_task = QueryTask(self.conn, sql, page_size=TABLE_PAGE_SIZE, offset=0)
         query_task.query_finished.connect(on_finished)
         self.thread_pool.start(query_task)
         self.active_queries += 1
@@ -974,7 +1030,7 @@ class DBManager(QMainWindow):
 <p>本程序是一个轻量级的SQLite数据库查看和管理工具，支持浏览数据库结构、查看表数据和执行SQL查询。</p>
 
 <p>© 2023-2026 {AUTHOR}. 保留所有权利。</p>"""
-        from custom_dialogs import show_info
+        from .custom_dialogs import show_info
         show_info("关于 SQLite 数据库查看工具", about_text, self)
     
     def load_more_sql_result(self):
@@ -990,10 +1046,14 @@ class DBManager(QMainWindow):
             if error is not None:
                 show_error("错误", f"加载更多结果失败: {error}", self)
                 return
+            if total_rows and total_rows >= 0:
+                self.sql_result_total = total_rows
             if new_rows := rows:
                 self.result_table.model.add_data(new_rows)
-                self.sql_result_loaded += len(new_rows)
-                self.sql_result_count_label.setText(f'共 {total_rows} 行（已加载 {self.sql_result_loaded} 行）')
+                self.result_table.finish_loading()
+                self.sql_result_loaded = min(self.sql_result_loaded + len(new_rows), self.sql_result_total)
+                self.sql_result_count_label.setText(
+                    f'共 {self.sql_result_total} 行（已加载 {self.sql_result_loaded} 行）')
             if self.sql_result_loaded >= self.sql_result_total:
                 self.sql_load_more_btn.setVisible(False)
             else:
@@ -1001,11 +1061,10 @@ class DBManager(QMainWindow):
                 self.sql_load_more_btn.setText('加载更多')
 
         sql = getattr(self, 'sql_result_sql', '') or self.sql_editor.toPlainText().strip()
-        base_sql = sql.rstrip().rstrip(';')
-        offset = self.sql_result_loaded
-        page_sql = f"SELECT * FROM ({base_sql}) LIMIT {TABLE_PAGE_SIZE} OFFSET {offset}"
-
-        query_task = QueryTask(self.conn, page_sql)
+        if not sql:
+            return
+        # 复用原始 SQL，由 QueryTask 统一包装分页，避免重复叠加 LIMIT/OFFSET
+        query_task = QueryTask(self.conn, sql, page_size=TABLE_PAGE_SIZE, offset=self.sql_result_loaded)
         query_task.query_finished.connect(on_finished)
         self.thread_pool.start(query_task)
         self.active_queries += 1

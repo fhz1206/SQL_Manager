@@ -13,11 +13,11 @@ import random
 from typing import Dict, Optional, List, Any
 from collections import defaultdict, deque
 
-from sql_manager.api.models import (
+from .models import (
     ConnectionParams, NodeStatus, LoadBalanceStrategy,
     SqlExecuteResponse,
 )
-from sql_manager.core.db_manager import DatabaseConnection
+from ..core.db_manager import DatabaseConnection
 
 
 class NodeStats:
@@ -204,10 +204,22 @@ class ConnectionPool:
                 node_id=target_id, sql=sql,
             )
 
+        # 边界校正：page 从 1 起，page_size 至少 1
         try:
-            # 执行查询
-            cur = conn.cursor
-            cur.execute(sql)
+            page = max(1, int(page))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = max(1, int(page_size))
+        except (TypeError, ValueError):
+            page_size = 100
+
+        try:
+            # 使用独立游标，避免并发请求共用 conn.cursor 造成结果集覆盖
+            if hasattr(conn, "new_cursor"):
+                cur = conn.new_cursor()
+            else:
+                cur = conn.cursor()
             first_word = sql.split(None, 1)[0].upper() if sql.split() else ""
 
             columns: List[str] = []
@@ -216,23 +228,60 @@ class ConnectionPool:
             loaded_rows = 0
             has_more = False
 
-            if first_word in ("SELECT", "WITH", "PRAGMA", "EXPLAIN", "VALUES"):
-                all_rows = cur.fetchall()
-                columns = [desc[0] for desc in cur.description] if cur.description else []
-                total_rows = len(all_rows)
-                # 分段加载
-                offset = (page - 1) * page_size
-                page_rows = all_rows[offset:offset + page_size]
-                rows = [list(r) for r in page_rows]
-                loaded_rows = len(rows)
-                has_more = offset + loaded_rows < total_rows
-            else:
-                if hasattr(conn, "commit"):
-                    conn.commit()
-                total_rows = cur.rowcount if hasattr(cur, "rowcount") else 0
-                rows = []
-                loaded_rows = 0
-                has_more = False
+            try:
+                if first_word in ("SELECT", "WITH", "VALUES"):
+                    # 真·分段加载：库内 COUNT 取总数，LIMIT/OFFSET 只取当前页，
+                    # 绝不能一次性 fetchall 全部再切片
+                    base = sql.strip().rstrip(";")
+                    offset = (page - 1) * page_size
+                    total_rows = 0
+                    try:
+                        if hasattr(conn, "new_cursor"):
+                            cnt_cur = conn.new_cursor()
+                        else:
+                            cnt_cur = conn.cursor()
+                        try:
+                            cnt_cur.execute(f"SELECT COUNT(*) FROM ({base}) _cnt")
+                            r = cnt_cur.fetchone()
+                            total_rows = int(r[0]) if r else 0
+                        finally:
+                            try:
+                                cnt_cur.close()
+                            except Exception:
+                                pass
+                    except Exception:
+                        total_rows = -1
+
+                    cur.execute(f"SELECT * FROM ({base}) _paged LIMIT {page_size} OFFSET {offset}")
+                    fetched = cur.fetchall()
+                    columns = [desc[0] for desc in cur.description] if cur.description else []
+                    rows = [list(r) for r in fetched]
+                    loaded_rows = len(rows)
+                    if total_rows < 0:
+                        total_rows = offset + loaded_rows
+                    has_more = offset + loaded_rows < total_rows
+                elif first_word in ("PRAGMA", "EXPLAIN"):
+                    # PRAGMA/EXPLAIN 无法包装为子查询，原样执行
+                    cur.execute(sql)
+                    fetched = cur.fetchall()
+                    columns = [desc[0] for desc in cur.description] if cur.description else []
+                    rows = [list(r) for r in fetched]
+                    total_rows = len(rows)
+                    loaded_rows = len(rows)
+                    has_more = False
+                else:
+                    cur.execute(sql)
+                    if hasattr(conn, "commit"):
+                        conn.commit()
+                    total_rows = cur.rowcount if hasattr(cur, "rowcount") else 0
+                    rows = []
+                    loaded_rows = 0
+                    has_more = False
+            finally:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
 
             io_ms = (time.perf_counter() - start) * 1000.0
             is_slow = io_ms > threshold_ms

@@ -469,7 +469,7 @@ class QueryWizardDialog(QDialog):
         """
         sql = self._generate_sql()
         if not sql:
-            from custom_dialogs import show_warning
+            from .custom_dialogs import show_warning
             show_warning('警告', '请先选择表和列', self)
             return
         self.generated_sql = sql

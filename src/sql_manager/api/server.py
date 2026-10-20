@@ -16,16 +16,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from sql_manager.api.models import (
+from .models import (
     ConnectRequest, ConnectResponse, DisconnectRequest,
     SqlExecuteRequest, SqlExecuteResponse,
     DbGroupCreateRequest, DbGroupAddNodeRequest, ShardInfo,
     SyncRequest, SyncResponse, NodeStatus,
     LoadBalanceStrategy,
 )
-from sql_manager.api.pool import ConnectionPool
-from sql_manager.core.scheduler import DynamicPlannerScheduler, SlowSqlController, LoadBalancer
-from sql_manager.core.shard_manager import ShardManager
+from .pool import ConnectionPool
+from ..core.scheduler import DynamicPlannerScheduler, SlowSqlController, LoadBalancer
+from ..core.shard_manager import ShardManager
 
 app = FastAPI(title="SQL_Manager 局域网转发API", version="2.0.0")
 
@@ -285,7 +285,7 @@ def list_shards(table_name: Optional[str] = None):
 
 
 @app.get("/api/v1/shards/locate")
-def locate_shard(table_name: str, shard_key: Any, strategy: str = "hash"):
+def locate_shard(table_name: str, shard_key: str, strategy: str = "hash"):
     """根据分片键定位数据所在分片与节点"""
     shard = shard_manager.locate_shard(table_name, shard_key, strategy)
     if shard is None:
@@ -303,8 +303,11 @@ def locate_shard(table_name: str, shard_key: Any, strategy: str = "hash"):
 @app.post("/api/v1/rebalance")
 def rebalance():
     """触发负载再均衡"""
+    global scheduler, balancer
     pool._rr_cursors.clear()
+    # 重建调度器以丢弃历史慢节点惩罚，并同步更新全局负载均衡器
     scheduler = DynamicPlannerScheduler(slow_controller=slow_controller)
+    balancer.scheduler = scheduler
     return {"success": True, "message": "负载均衡已重置，下次请求将按健康节点重新路由"}
 
 
@@ -313,10 +316,12 @@ def sync_data(req: SyncRequest):
     """跨服务器数据同步（基于动态规划调度决定源->目标对）"""
     start = time.perf_counter()
     with _shard_lock:
-        src_nodes = [_nodes_status().__class__(**{k: v for k, v in vars(n).items() if k in NodeStatus.model_fields})
-                     for n in _nodes_status() if n.node_id in _group_nodes.get(req.source_group, [])]
-        tgt_nodes = [_nodes_status().__class__(**{k: v for k, v in vars(n).items() if k in NodeStatus.model_fields})
-                     for n in _nodes_status() if n.node_id in _group_nodes.get(req.target_group, [])]
+        # 直接复用 NodeStatus 实例，避免 vars() 对 pydantic v2 模型不可靠的问题
+        all_nodes = _nodes_status()
+        src_ids = set(_group_nodes.get(req.source_group, []))
+        tgt_ids = set(_group_nodes.get(req.target_group, []))
+        src_nodes = [n for n in all_nodes if n.node_id in src_ids]
+        tgt_nodes = [n for n in all_nodes if n.node_id in tgt_ids]
         tables = req.tables or []
         table_sizes = {t: 100000 for t in tables}  # 占位：实际应查询表行数
 
@@ -359,14 +364,22 @@ def _start_heartbeat():
         while not _heartbeat_stop.is_set():
             _heartbeat_stop.wait(10)
             for nid, stats in list(pool._nodes.items()):
-                if stats.connected:
-                    try:
-                        conn = pool.get_connection(nid)
-                        if conn:
-                            cur = conn.cursor
+                if not stats.connected:
+                    continue
+                try:
+                    conn = pool.get_connection(nid)
+                    if conn:
+                        # 用独立游标做探活，避免与业务请求共用 conn.cursor 造成结果集覆盖
+                        cur = conn.new_cursor() if hasattr(conn, "new_cursor") else conn.cursor()
+                        try:
                             cur.execute("SELECT 1")
-                    except Exception:
-                        stats.connected = False
+                        finally:
+                            try:
+                                cur.close()
+                            except Exception:
+                                pass
+                except Exception:
+                    stats.connected = False
 
     t = threading.Thread(target=_beat, daemon=True)
     t.start()
