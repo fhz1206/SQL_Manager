@@ -2,6 +2,15 @@
 
 单机桌面 SQL 管理器 → 局域网多人联网分布式数据库管理平台的演进版本。
 
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | 架构设计：分层结构、模块职责、线程模型、数据流、设计约束与反模式 |
+| [docs/api.md](docs/api.md) | 局域网转发 API：全部端点的请求/响应字段、错误语义、curl 与 Python 示例 |
+| [docs/changelog.md](docs/changelog.md) | 更新日志 / Bug 修复记录与已知限制 |
+| [docs/web/index.html](docs/web/index.html) | 3D/2D 可交互网页展示 |
+
 ## 项目结构（标准化）
 
 ```
@@ -33,6 +42,7 @@ SQL_Manager/
 │   │   ├── vector_drivers.py     # Milvus/Qdrant/Chroma/Weaviate/Pinecone
 │   │   ├── search_drivers.py     # Elasticsearch
 │   │   ├── opensearch_driver.py  # OpenSearch
+│   │   ├── nebula_driver.py      # Nebula Graph
 │   │   └── orm_adapters.py       # SQLAlchemy/Django ORM/Peewee/Tortoise ORM 分段适配器
 │   └── ui/
 │       ├── __init__.py
@@ -44,9 +54,13 @@ SQL_Manager/
 │       ├── style.css             # 统一主题 (液态玻璃，统一颜色系统)
 │       └── icon.ico
 ├── docs/
+│   ├── architecture.md           # 架构设计（分层、数据流、并发模型）
+│   ├── api.md                    # 局域网转发 API 文档
+│   ├── changelog.md              # 更新日志 / Bug 修复记录
 │   └── web/
 │       └── index.html            # 3D/2D 可交互网页展示 (Three.js)
-├── tests/                        # 待补充
+├── tests/
+│   └── smoke_api.py              # API 冒烟测试（分页/慢SQL/IO耗时）
 ├── .github/workflows/ci.yml
 └── requirements.txt
 ```
@@ -95,13 +109,16 @@ SQL_Manager/
 ### 6. 跨服务器数据同步
 - `POST /api/v1/sync`：基于调度器生成源组 → 目标组的同步计划（源/目标节点对、预估成本），生产环境可接入 Binlog/CDC。
 
-### 7. 多数据库类型支持（26+）
+### 7. 多数据库类型支持（26 种）
 SQL 型：SQLite、MySQL、PostgreSQL、MariaDB、SQL Server、Oracle、ClickHouse、Apache Doris、StarRocks、TDengine、PGVector  
 NoSQL：MongoDB、Redis、etcd、Neo4j、Cassandra、InfluxDB 2.x、HBase  
 向量：Milvus、Qdrant、Chroma、Weaviate、Pinecone  
 搜索：Elasticsearch、OpenSearch  
 图：Nebula Graph  
 ORM：SQLAlchemy、Django ORM、Peewee、Tortoise ORM（分段适配器）
+
+完整注册类型（`sql_manager.drivers.list_types()` 返回 26 项）：
+`cassandra, chroma, clickhouse, doris, elasticsearch, etcd, hbase, influxdb, mariadb, milvus, mongodb, mysql, nebulagraph, neo4j, opensearch, oracle, pgvector, pinecone, postgres, qdrant, redis, sqlite, sqlserver, starrocks, tdengine, weaviate`
 
 Pandas `read_sql` 分段读取：`drivers/sql_drivers.py::read_sql_pandas_chunks()`，`chunksize` 控制每段行数，避免一次性全量加载。
 
@@ -123,6 +140,14 @@ python -m uvicorn sql_manager.api.server:app --host 0.0.0.0 --port 8000
 ### 3D/2D 网页展示
 直接打开 `docs/web/index.html`（使用 Three.js 渲染数据库拓扑，支持点击节点查看详情、模拟慢SQL、负载再均衡、数据同步、SQL查询等）。
 
+### 冒烟测试
+```bash
+# 1) 先启动服务器
+cd src && python -m uvicorn sql_manager.api.server:app --host 127.0.0.1 --port 8124
+# 2) 另开终端运行
+python tests/smoke_api.py
+```
+
 ## 依赖
 ```
 PyQt6>=6.0.0
@@ -130,5 +155,13 @@ fastapi>=0.104.0
 uvicorn>=0.24.0
 pydantic>=2.5.0
 python-multipart>=0.0.6
+requests>=2.31.0
 ```
-各数据库驱动按需安装（如 `pymysql`、`psycopg2-binary`、`pymongo`、`redis` 等）。
+各数据库驱动按需安装（如 `pymysql`、`psycopg2-binary`、`pymongo`、`redis` 等）。所有第三方驱动均为**惰性导入**，未安装时不影响程序启动，仅在实际连接时提示。
+
+## 已知限制
+
+- 26 个驱动仅验证了可导入与注册正确，未做真实连接测试（对应第三方库未安装）。
+- `POST /api/v1/sync` 目前只生成同步**计划**（源/目标节点配对与预估成本），实际数据搬运需接入 Binlog / CDC。
+- 桌面客户端尚未接入 `api/client.py`（无"通过局域网 API 连接"入口与服务器地址输入框）。
+- `core/db_manager.DatabaseConnection` 目前只支持 sqlite / mysql / postgres，尚未委托给 `DriverRegistry`，因此 26 种驱动暂不能在现有 UI 中直接选用。

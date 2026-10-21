@@ -9,9 +9,11 @@
 import os
 
 # 基础路径配置
+# 注意：图标与样式表位于 ui/ 目录下，core/ 目录同级
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ICON_PATH = os.path.join(BASE_DIR, 'icon.ico')
-CSS_PATH = os.path.join(BASE_DIR, 'style.css')
+UI_DIR = os.path.normpath(os.path.join(BASE_DIR, os.pardir, 'ui'))
+ICON_PATH = os.path.join(UI_DIR, 'icon.ico')
+CSS_PATH = os.path.join(UI_DIR, 'style.css')
 
 # 业务常量配置
 TABLE_PAGE_SIZE = 1000  # 表数据默认每页加载行数

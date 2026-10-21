@@ -238,10 +238,15 @@ class DBManager(QMainWindow):
                 stylesheet = f.read()
             self.setStyleSheet(stylesheet)
         except Exception as e:
-            QMessageBox.warning(self, '样式加载失败', f'无法加载style.css：{str(e)}\n请确保style.css和程序在同一目录下')
+            # 样式缺失不应阻塞启动（无头环境/自动化测试会卡在模态框上），
+            # 改为记录到状态栏，界面仍可正常使用
+            self._style_load_error = str(e)
+            print(f'样式加载失败：{e}（路径: {CSS_PATH}）')
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+        if getattr(self, '_style_load_error', None):
+            self.status_bar.showMessage(f'样式加载失败：{self._style_load_error}', 10000)
 
         toolbar = QToolBar()
         toolbar.setIconSize(QSize(18, 18))
